@@ -1,0 +1,26 @@
+# Dependencies
+**/node_modules
+**/package-lock.json
+**/yarn.lock
+
+# Environment Files
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+
+# FFmpeg Playground specifics
+ffmpeg-playground/uploads/
+ffmpeg-playground/outputs/
+*.log
+
+# Next.js specifics
+video-editor/.next/
+video-editor/out/
+video-editor/.vercel
+video-editor/tsconfig.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db

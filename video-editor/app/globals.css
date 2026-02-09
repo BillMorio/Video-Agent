@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+:root {
+  /* Light theme colors */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 3.9%;
+  --primary: 262 83.3% 57.8%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 96.1%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 0 0% 96.1%;
+  --muted-foreground: 0 0% 45.1%;
+  --accent: 0 0% 96.1%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 89.8%;
+  --input: 0 0% 89.8%;
+  --ring: 262 83.3% 57.8%;
+  --radius: 0.375rem;
+
+  /* Premium Glass Variables - Sync with Reference App */
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.04);
+  --glass-border: 0 0% 0% / 0.05;
+  --glass-bg: 0 0% 100% / 0.7;
+}
+
+.dark {
+  /* Dark theme colors - High-End "Charcoal Slate" Palette (Softer) */
+  --background: 240 10% 10%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 14%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 10% 14%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 262 83.3% 57.8%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 10% 18%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 10% 18%;
+  --muted-foreground: 240 5% 70%;
+  --accent: 240 10% 18%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 10% 20%;
+  --input: 240 10% 20%;
+  --ring: 262 83.3% 57.8%;
+
+  /* Premium Glass Variables - Dark Mode */
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --glass-border: 0 0% 100% / 0.1;
+  --glass-bg: 240 10% 10% / 0.4;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Technical label styles */
+.technical-label {
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  letter-spacing: 0.05em;
+}
+
+/* Premium Glass Effect - Restoring True Translucency */
+.glass-premium {
+  background: hsl(var(--glass-bg));
+  backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid hsl(var(--glass-border));
+}
+
+/* Glass effect - Legacy */
+.glass {
+  background: hsl(var(--card) / 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border));
+}
+
+/* Shadow glow effect */
+.shadow-glow {
+  box-shadow: 0 0 20px hsl(var(--primary) / 0.15);
+}
+
+/* Hide scrollbar */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom focus styles */
+*:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Smooth transitions */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Cinematic Production Animations */
+@keyframes scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 0.8; }
+  90% { opacity: 0.8; }
+  100% { transform: translateY(400%); opacity: 0; }
+}
+
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes thought-stream-in {
+  0% { transform: translateX(20px); opacity: 0; filter: blur(4px); }
+  100% { transform: translateX(0); opacity: 1; filter: blur(0); }
+}
+
+@keyframes minimal-glow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.mask-fade-horizontal {
+  mask-image: linear-gradient(to right, transparent, black 20%, black 80%, transparent);
+}
