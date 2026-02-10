@@ -3,14 +3,13 @@
  * Uses the real Pexels API to search for high-quality stock footage.
  */
 
-const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
-
 export interface SearchPexelsArgs {
   query: string;
   per_page?: number;
   orientation?: "landscape" | "portrait" | "square";
   size?: "large" | "medium" | "small";
   targetDuration?: number; // Used for selecting the best match locally
+  apiKey?: string;
 }
 
 /**
@@ -19,7 +18,9 @@ export interface SearchPexelsArgs {
 export async function search_pexels_library(args: SearchPexelsArgs) {
   console.log(`[PexelsTool] Searching for "${args.query}" (Orientation: ${args.orientation || 'any'}, Size: ${args.size || 'any'})...`);
 
-  if (!PEXELS_API_KEY) {
+  const apiKey = args.apiKey || process.env.PEXELS_API_KEY;
+
+  if (!apiKey) {
     return {
       status: "failed",
       error: "PEXELS_API_KEY is missing from environment variables."
@@ -39,7 +40,7 @@ export async function search_pexels_library(args: SearchPexelsArgs) {
       `https://api.pexels.com/v1/videos/search?${params.toString()}`,
       {
         headers: {
-          Authorization: PEXELS_API_KEY,
+          Authorization: apiKey,
         },
       }
     );

@@ -116,6 +116,15 @@ const testPages = [
     bgColor: "bg-rose-500/10",
     borderColor: "border-rose-500/30"
   },
+  {
+    title: "Wavespeed InfiniteTalk",
+    description: "High-speed AI lip-sync generation using the Wavespeed V3 API",
+    href: "/playground/wavespeed",
+    icon: Sparkles,
+    color: "text-indigo-500",
+    bgColor: "bg-indigo-500/10",
+    borderColor: "border-indigo-500/30"
+  },
 ];
 
 export default function PlaygroundPage() {

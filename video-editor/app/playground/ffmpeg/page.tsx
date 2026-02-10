@@ -70,6 +70,16 @@ const tools = [
     status: "New / Agentic" // Using 'status' for consistency, combining 'NEW' and 'AGENTIC'
   },
   {
+    title: "Ken Burns Generator",
+    description: "Transform static images into cinematic video flows with audio-synced zooming.",
+    href: "/playground/ffmpeg/ken-burns",
+    icon: Film,
+    color: "text-rose-600",
+    bgColor: "bg-rose-50",
+    borderColor: "border-rose-100",
+    status: "New"
+  },
+  {
     title: "Audio Trimmer",
     description: "Extract high-quality segments from any audio stream.",
     href: "/playground/ffmpeg/audio-trim",

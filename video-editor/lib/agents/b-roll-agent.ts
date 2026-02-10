@@ -135,9 +135,11 @@ export class BRollAgent implements BaseAgent {
 
             let toolResult: any;
             if (toolName === 'search_pexels_library') {
+              const apiKeys = context.memory?.metadata?.config?.api_keys;
               toolResult = await brollTools.search_pexels_library({
                 ...args,
-                targetDuration: scene.duration
+                targetDuration: scene.duration,
+                apiKey: apiKeys?.PEXELS_API_KEY
               });
 
               if (toolResult.status === 'success') {

@@ -54,7 +54,15 @@ export interface AgentMemory {
   failed_count: number;
   current_scene_id?: string;
   last_log?: string;
-  metadata?: any; // For dynamic settings like aspectRatio, tone, etc.
+  metadata?: {
+    lightLeakOverlayUrl?: string;
+    config?: {
+        transcript_to_scenes_prompt?: string;
+        image_gen_prompt_engineer_prompt?: string;
+        api_keys?: Record<string, string>;
+    };
+    [key: string]: any;
+  };
   updated_at: string;
 }
 

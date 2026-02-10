@@ -14,6 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { useState, useRef } from "react";
 import { 
   Image as ImageIcon,
   ZoomIn,
@@ -24,10 +25,10 @@ import {
   Wand2,
   Target,
   Play,
+  Pause,
   Video,
   Clock
 } from "lucide-react";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface ImageModalProps {
@@ -48,8 +49,22 @@ export function ImageModal({ isOpen, onClose, scene, onUpdate }: ImageModalProps
   const [searchQuery, setSearchQuery] = useState(scene.image?.searchQuery || "");
   const [aiPrompt, setAiPrompt] = useState("");
   const [directorNote, setDirectorNote] = useState(scene.directorNote || "");
+  const [isPlaying, setIsPlaying] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const image = scene.image;
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+    
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
 
   const handleSave = () => {
     onUpdate({
@@ -86,7 +101,32 @@ export function ImageModal({ isOpen, onClose, scene, onUpdate }: ImageModalProps
             setCenterY(Math.round(y * 100) / 100);
           }}
         >
-          {scene.asset_url ? (
+          {scene.final_video_url ? (
+            <>
+              <video 
+                ref={videoRef}
+                src={scene.final_video_url}
+                className="absolute inset-0 w-full h-full object-cover"
+                muted
+                loop
+                playsInline
+                autoPlay
+              />
+              {/* Play/Pause Button Overlay */}
+              <button 
+                onClick={togglePlay}
+                className="absolute inset-0 flex items-center justify-center bg-black/5 opacity-0 hover:opacity-100 transition-opacity z-20"
+              >
+                <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform">
+                  {isPlaying ? (
+                    <Pause className="w-5 h-5 text-white fill-white" />
+                  ) : (
+                    <Play className="w-5 h-5 text-white fill-white ml-1" />
+                  )}
+                </div>
+              </button>
+            </>
+          ) : scene.asset_url ? (
             <img 
               src={scene.asset_url}
               className="absolute inset-0 w-full h-full object-cover"

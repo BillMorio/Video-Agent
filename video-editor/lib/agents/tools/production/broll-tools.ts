@@ -13,6 +13,7 @@ export interface SearchBrollArgs {
   orientation?: "landscape" | "portrait" | "square";
   size?: "large" | "medium" | "small";
   targetDuration?: number;
+  apiKey?: string;
 }
 
 export interface FitBrollArgs {
@@ -28,7 +29,8 @@ export async function search_pexels_library(args: SearchBrollArgs) {
   return pexelsSearch({
     ...args,
     orientation: args.orientation || "landscape",
-    size: args.size || "small"
+    size: args.size || "small",
+    apiKey: args.apiKey
   });
 }
 

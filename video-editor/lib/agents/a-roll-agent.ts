@@ -13,15 +13,18 @@ export class ARollAgent implements BaseAgent {
 
   private TOOL_LOG_MAPPING: Record<string, string> = {
     'cut_audio_segment': 'Extracting narration segment and uploading to clinical storage',
+    'generate_wavespeed_avatar_video': 'Generating and Polling Wavespeed AI synthesis (High-Speed)',
     'generate_heygen_avatar_video': 'Generating and Polling Heygen AI synthesis'
   };
 
   private getAnthropicTools() {
-    return A_ROLL_AGENT_TOOLS.map(t => ({
-      name: (t as any).function.name,
-      description: (t as any).function.description,
-      input_schema: (t as any).function.parameters as any
-    }));
+    return A_ROLL_AGENT_TOOLS
+      .filter(t => !(t as any).function.name.includes('heygen'))
+      .map(t => ({
+        name: (t as any).function.name,
+        description: (t as any).function.description,
+        input_schema: (t as any).function.parameters as any
+      }));
   }
 
   async process(scene: Scene, context: ProjectContext): Promise<AgentResult> {
@@ -39,7 +42,7 @@ export class ARollAgent implements BaseAgent {
 
       const systemPrompt = `You are the ${this.name}. ${this.role}
           
-          AVATAR_ID: "75fb83b62014421a88be427fbe3bf2f3"
+          PRODUCTION_AVATAR_IMAGE: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/Gemini_Generated_Image_afr4xlafr4xlafr4.png"
 
           SCENE CONTEXT:
           - Start Time: ${scene.start_time}s
@@ -53,13 +56,13 @@ export class ARollAgent implements BaseAgent {
           1. You operate in a loop. Execute tools sequentially to achieve the goal.
           2. STEP 1: Use 'cut_audio_segment' to extract the audio for this scene from the master audio.
              - Use Start Time: ${scene.start_time}, Duration: ${scene.duration}.
-          3. STEP 2: Use 'generate_heygen_avatar_video' using the Supabase URL returned from Step 1.
-             - Use the AVATAR_ID provided above.
-             - Use Scale: ${scene.scale || 1.0}.
+          3. STEP 2: Use 'generate_wavespeed_avatar_video' using the Supabase URL returned from Step 1.
+             - Use the PRODUCTION_AVATAR_IMAGE provided above.
+             - Resolution: "480p" (MANDATORY). Do not attempt to use any other resolution.
              - THIS TOOL WILL WAIT FOR THE VIDEO TO BE READY. Do not call any other tools for this video.
-          4. FINISH: Once Step 2 returns 'success', respond with a final confirmation.
+          4. FINISH: Once the generation returns 'success', respond with a final confirmation.
           
-          CRITICAL: Do not respond with a final summary until you have the final video URL from Step 2.`;
+          CRITICAL: Do not respond with a final summary until you have the final video URL from the generation tool.`;
 
       // 2. Initialize Conversation History
       const messages: any[] = [
@@ -126,8 +129,28 @@ export class ARollAgent implements BaseAgent {
                   ...args,
                   audioUrl: args.audioUrl || context.master_audio_url || ""
                 });
+              } else if (toolName === 'generate_wavespeed_avatar_video') {
+                const apiKeys = context.memory?.metadata?.config?.api_keys;
+                toolResult = await arollTools.generate_wavespeed_avatar_video({
+                  ...args,
+                  resolution: args.resolution || '720p',
+                  apiKey: apiKeys?.WAVESPEED_API_KEY
+                });
+                
+                if (toolResult.status === 'success') {
+                  const updatedScene = await sceneService.update(scene.id, {
+                    asset_url: toolResult.videoUrl,
+                    final_video_url: toolResult.videoUrl,
+                    payload: { ...scene.payload, ...toolResult }
+                  });
+                  Object.assign(scene, updatedScene);
+                }
               } else if (toolName === 'generate_heygen_avatar_video') {
-                toolResult = await arollTools.generate_heygen_avatar_video(args);
+                const apiKeys = context.memory?.metadata?.config?.api_keys;
+                toolResult = await arollTools.generate_heygen_avatar_video({
+                  ...args,
+                  apiKey: apiKeys?.HEY_GEN_API
+                });
                 
                 if (toolResult.status === 'success') {
                   const updatedScene = await sceneService.update(scene.id, {
@@ -138,7 +161,11 @@ export class ARollAgent implements BaseAgent {
                   Object.assign(scene, updatedScene);
                 }
               } else if (toolName === 'poll_heygen_video_status') {
-                toolResult = await arollTools.poll_heygen_video_status(args);
+                const apiKeys = context.memory?.metadata?.config?.api_keys;
+                toolResult = await arollTools.poll_heygen_video_status({
+                  ...args,
+                  apiKey: apiKeys?.HEY_GEN_API
+                });
                 
                 if (toolResult.status === 'success') {
                   const updatedScene = await sceneService.update(scene.id, {
@@ -184,14 +211,14 @@ export class ARollAgent implements BaseAgent {
           finalAgentResponse = textBlock?.text || finalAgentResponse;
 
           // PERSISTENCE CHECK: If we started generation but haven't finished, enforce another turn
-          const hasInitiated = messages.some(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some((c: any) => c.tool_use?.name === 'generate_heygen_avatar_video' || (c.type === 'tool_use' && c.name === 'generate_heygen_avatar_video')));
+          const hasInitiated = messages.some(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some((c: any) => c.tool_use?.name === 'generate_wavespeed_avatar_video' || (c.type === 'tool_use' && c.name === 'generate_wavespeed_avatar_video')));
           const hasFinished = !!scene.final_video_url;
 
           if (hasInitiated && !hasFinished) {
             console.log(`[${this.name}] PERSISTENCE: Claude tried to finish without success result. Enforcing turn.`);
             messages.push({
               role: "user",
-              content: "You have initiated generation but haven't retrieved the final video. Ensure you have called 'generate_heygen_avatar_video' and it returned success."
+              content: "You have initiated generation but haven't retrieved the final video. Ensure you have called 'generate_wavespeed_avatar_video' and it returned success."
             });
           } else {
             isRunning = false; 

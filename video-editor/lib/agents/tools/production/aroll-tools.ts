@@ -13,10 +13,20 @@ export interface GenerateHeygenVideoArgs {
   avatarId: string;
   caption?: boolean;
   scale?: number;
+  apiKey?: string;
+}
+
+export interface GenerateWavespeedVideoArgs {
+  audioUrl: string;
+  imageUrl: string;
+  resolution?: string;
+  seed?: number;
+  apiKey?: string;
 }
 
 export interface PollHeygenStatusArgs {
   videoId: string;
+  apiKey?: string;
 }
 
 /**
@@ -58,10 +68,148 @@ export async function cut_audio_segment(args: CutAudioSegmentArgs) {
 }
 
 /**
+ * Initiates video generation on Wavespeed AI (InfiniteTalk).
+ */
+export async function generate_wavespeed_avatar_video(args: GenerateWavespeedVideoArgs) {
+  const apiKey = args.apiKey || process.env.WAVESPEED_API_KEY;
+  if (!apiKey) throw new Error("WAVESPEED_API_KEY is not configured");
+
+  console.log(`[ARollTools] Initiating Wavespeed generation with audio: ${args.audioUrl.substring(0, 50)}...`);
+
+  const payload = {
+    audio: args.audioUrl,
+    image: args.imageUrl,
+    resolution: args.resolution || "720p",
+    seed: args.seed || -1
+  };
+
+  const fetchResponse = await fetch("https://api.wavespeed.ai/api/v3/wavespeed-ai/infinitetalk", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const rawGenText = await fetchResponse.text();
+  console.log(`\n--- [ARollTools] Wavespeed Generate RAW ---`);
+  console.log(rawGenText);
+  console.log(`--- [ARollTools] RAW END ---\n`);
+
+  let data;
+  try {
+    const fBrace = rawGenText.indexOf('{');
+    const lBrace = rawGenText.lastIndexOf('}');
+    if (fBrace !== -1 && lBrace !== -1 && lBrace > fBrace) {
+      data = JSON.parse(rawGenText.substring(fBrace, lBrace + 1));
+    } else {
+      data = JSON.parse(rawGenText);
+    }
+    console.log(`[ARollTools] Parsed Gen Result:`, JSON.stringify(data, null, 2));
+  } catch (e: any) {
+    throw new Error(`Wavespeed Gen Parse Failure: ${e.message}. Raw: ${rawGenText.substring(0, 100)}`);
+  }
+
+  if (!fetchResponse.ok) throw new Error(data?.message || data?.error?.message || "Wavespeed video generation failed");
+
+  // Extraction logic from documentation
+  const genData = data.data || {};
+  const videoUrl = genData.outputs?.[0] || data.video_url;
+  const requestId = genData.id || data.request_id || data.id;
+
+  if (videoUrl) {
+    console.log(`[ARollTools] Generation complete immediately! URL: ${videoUrl}`);
+    return {
+      status: "success",
+      videoUrl: videoUrl,
+      requestId: requestId
+    };
+  }
+
+  if (!requestId) {
+    throw new Error("Wavespeed API did not return a request ID or Video URL");
+  }
+
+  console.log(`[ARollTools] Polling for ID: ${requestId}...`);
+
+  // Polling logic
+  const maxAttempts = 50; 
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    const statusUrl = `https://api.wavespeed.ai/api/v3/predictions/${requestId}/result`;
+    
+    try {
+      const statusRes = await fetch(statusUrl, {
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+      });
+      
+      const rawStatusText = await statusRes.text();
+      console.log(`\n--- [ARollTools] Poll Attempt ${attempts} RAW ---`);
+      console.log(rawStatusText);
+      console.log(`--- [ARollTools] END ---\n`);
+
+      if (!rawStatusText || rawStatusText.trim() === "null") {
+        console.log(`[ARollTools] Received null status, retrying in 5s...`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+
+      let result;
+      try {
+        const firstB = rawStatusText.indexOf('{');
+        const lastB = rawStatusText.lastIndexOf('}');
+        if (firstB !== -1 && lastB !== -1 && lastB > firstB) {
+          result = JSON.parse(rawStatusText.substring(firstB, lastB + 1));
+        } else {
+          result = JSON.parse(rawStatusText);
+        }
+        console.log(`[ARollTools] Parsed Poll Result:`, JSON.stringify(result, null, 2));
+      } catch (e) {
+        console.error(`[ARollTools] Poll Parse Error. Raw: ${rawStatusText.substring(0, 50)}...`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue; 
+      }
+
+      const statusData = result.data || {};
+      const status = statusData.status || result.status;
+      const outputs = statusData.outputs;
+      const finalUrl = Array.isArray(outputs) ? outputs[0] : (typeof outputs === 'string' ? outputs : null);
+
+      console.log(`[ARollTools] Video ${requestId} status: ${status || 'unknown'} (Attempt ${attempts}/${maxAttempts})`);
+
+      if (status === "completed" || status === "success" || finalUrl) {
+        if (finalUrl) {
+          return {
+            status: "success",
+            requestId: requestId,
+            videoUrl: finalUrl
+          };
+        }
+      }
+
+      if (status === "failed" || status === "error") {
+        throw new Error(`Wavespeed video generation failed: ${statusData.error || result.message || "Unknown error"}`);
+      }
+    } catch (pollErr: any) {
+      console.error(`[ARollTools] Polling error on attempt ${attempts}:`, pollErr.message);
+    }
+
+    // Wait 10 seconds before next poll
+    await new Promise(resolve => setTimeout(resolve, 10000));
+  }
+
+  throw new Error("Wavespeed video generation timed out");
+}
+
+/**
  * Initiates video generation on Heygen and polls until completion.
+ * @deprecated Use generate_wavespeed_avatar_video for faster results
  */
 export async function generate_heygen_avatar_video(args: GenerateHeygenVideoArgs) {
-  const apiKey = process.env.HEY_GEN_API;
+  const apiKey = args.apiKey || process.env.HEY_GEN_API;
   if (!apiKey) throw new Error("HEY_GEN_API key is not configured");
 
   console.log(`[ARollTools] Initiating Heygen generation with avatar: ${args.avatarId}, scale: ${args.scale ?? 1.0}`);
@@ -145,7 +293,7 @@ export async function generate_heygen_avatar_video(args: GenerateHeygenVideoArgs
  */
 export async function poll_heygen_video_status(args: PollHeygenStatusArgs) {
   // Keeping it for backward compatibility if needed, but the agent should use the combined tool
-  const apiKey = process.env.HEY_GEN_API;
+  const apiKey = args.apiKey || process.env.HEY_GEN_API;
   if (!apiKey) throw new Error("HEY_GEN_API key is not configured");
 
   console.log(`[ARollTools] Polling status for video: ${args.videoId}`);
@@ -187,4 +335,5 @@ export async function poll_heygen_video_status(args: PollHeygenStatusArgs) {
 
   throw new Error("Heygen video generation timed out");
 }
+
 

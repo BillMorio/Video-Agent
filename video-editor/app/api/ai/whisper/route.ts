@@ -1,23 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabase } from "@/lib/supabase";
+import { memoryService } from "@/lib/services/api/memory-service";
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
-  }
-
-  const openai = new OpenAI({ apiKey });
-
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
+    const projectId = formData.get("projectId") as string;
 
     if (!file) {
       return NextResponse.json({ error: "No audio file provided" }, { status: 400 });
     }
+
+    let apiKey = process.env.OPENAI_API_KEY;
+
+    // Fetch custom prompts if projectId is provided
+    if (projectId) {
+        try {
+            const memory = await memoryService.getByProjectId(projectId);
+            if (memory?.metadata?.config?.api_keys?.OPENAI_API_KEY) {
+                apiKey = memory.metadata.config.api_keys.OPENAI_API_KEY;
+                console.log(`[Whisper API] Using custom OpenAI API key for project ${projectId}`);
+            }
+        } catch (e) {
+            console.warn(`[Whisper API] Failed to fetch project memory for ${projectId}:`, e);
+        }
+    }
+
+    if (!apiKey) {
+      return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
+    }
+
+    const openai = new OpenAI({ apiKey });
 
     console.log(`[Whisper API] Processing file: ${file.name} (${file.size} bytes)`);
 

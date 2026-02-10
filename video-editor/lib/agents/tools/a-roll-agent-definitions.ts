@@ -23,8 +23,24 @@ export const A_ROLL_AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "generate_wavespeed_avatar_video",
+      description: "Initiates video generation on Wavespeed AI (InfiniteTalk) and waits until the process is complete. This is significantly faster than Heygen. Returns the final video URL.",
+      parameters: {
+        type: "object",
+        properties: {
+          audioUrl: { type: "string", description: "Publicly accessible URL of the vocal segment (Supabase URL)" },
+          imageUrl: { type: "string", description: "The source image URL to animate" },
+          resolution: { type: "string", enum: ["480p", "720p"], description: "Output resolution (default: 720p)" }
+        },
+        required: ["audioUrl", "imageUrl"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "generate_heygen_avatar_video",
-      description: "Initiates video generation on Heygen and waits until the process is complete (polls every 10s). Returns the final video URL.",
+      description: "DEPRECATED: Use Wavespeed instead unless specifically requested. Initiates video generation on Heygen and waits until the process is complete.",
       parameters: {
         type: "object",
         properties: {

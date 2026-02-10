@@ -1,6 +1,7 @@
 "use client";
 
-import { Scissors, Play, Plus, User, Film, Sparkles, Image as ImageIcon, Camera, Aperture, Activity, Loader2, Clock } from "lucide-react";
+import { useState, useRef } from "react";
+import { Scissors, Play, Pause, Plus, User, Film, Sparkles, Image as ImageIcon, Camera, Aperture, Activity, Loader2, Clock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Scene, VisualType } from "@/lib/types";
@@ -52,7 +53,21 @@ export function SceneCard({
   onClick,
   onDoubleClick
 }: SceneCardProps) {
+  const [isPlaying, setIsPlaying] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const visualType = scene.visual_type || scene.visualType || "b-roll";
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+    
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
 
   // Get asset data based on visual type
   const getAssetData = () => {
@@ -125,8 +140,33 @@ export function SceneCard({
       )}
 
       <div className="aspect-video bg-muted/5 relative flex items-center justify-center overflow-hidden rounded-t-2xl">
-        {/* Thumbnail Background */}
-        {(scene.thumbnail_url || (visualType === 'image' && scene.asset_url)) && (
+        {/* Media Layer (Video or Thumbnail) */}
+        {scene.final_video_url ? (
+          <>
+            <video 
+              ref={videoRef}
+              src={scene.final_video_url}
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+              muted
+              loop
+              playsInline
+              autoPlay
+            />
+            {/* Play/Pause Button Overlay */}
+            <button 
+              onClick={togglePlay}
+              className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+            >
+              <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform">
+                {isPlaying ? (
+                  <Pause className="w-6 h-6 text-white fill-white" />
+                ) : (
+                  <Play className="w-6 h-6 text-white fill-white ml-1" />
+                )}
+              </div>
+            </button>
+          </>
+        ) : (scene.thumbnail_url || (visualType === 'image' && scene.asset_url)) && (
           <div 
             className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105"
             style={{ backgroundImage: `url(${scene.thumbnail_url || scene.asset_url})` }}
