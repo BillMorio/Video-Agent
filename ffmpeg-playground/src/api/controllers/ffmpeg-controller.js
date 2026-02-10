@@ -13,7 +13,14 @@ import {
   concatVideos,
   mergeAudioVideo,
   lightLeakTransition,
-  zoomInTransition
+  batchLightLeakTransition,
+  zoomInTransition,
+  blurCrossfade,
+  zoomOutTransitionLogic,
+  radialTransition,
+  circleTransition,
+  videoKenBurns,
+  kenBurns
 } from '../../services/video-service.js';
 import { extractAudio, trimAudio } from '../../services/audio-service.js';
 import path from 'path';
@@ -558,6 +565,26 @@ export const lightLeak = async (req, res) => {
   }
 };
 
+export const batchLightLeak = async (req, res) => {
+  if (!req.files || req.files.length < 3) return res.status(400).json({ error: 'At least 2 source clips + 1 overlay required' });
+  try {
+    const outPath = await batchLightLeakTransition(req.files, parseFloat(req.body.transitionDuration) || 0.8);
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({
+      success: true,
+      message: 'Batch light leak complete!',
+      outputFile: `/outputs/${path.basename(outPath)}`,
+      publicUrl
+    });
+  } catch (err) {
+    console.error(`[API] ${req.path} Error:`, err);
+    res.status(500).json({ 
+      error: err.message,
+      details: err.stderr || null
+    });
+  }
+};
+
 export const zoomTransition = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required: Clip A and Clip B' });
   try {
@@ -577,3 +604,115 @@ export const zoomTransition = async (req, res) => {
     });
   }
 };
+
+export const blurTransition = async (req, res) => {
+  if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required: Clip A and Clip B' });
+  try {
+    const outPath = await blurCrossfade(req.files, parseFloat(req.body.transitionDuration));
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({
+      success: true,
+      message: 'Blur Crossfade completed!',
+      outputFile: `/outputs/${path.basename(outPath)}`,
+      publicUrl
+    });
+  } catch (err) {
+    console.error(`[API] ${req.path} Error:`, err);
+    res.status(500).json({ error: err.message, details: err.stderr || null });
+  }
+};
+
+export const zoomOutTransition = async (req, res) => {
+  if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required: Clip A and Clip B' });
+  try {
+    const outPath = await zoomOutTransitionLogic(req.files, parseFloat(req.body.transitionDuration));
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({
+      success: true,
+      message: 'Zoom Out transition complete!',
+      outputFile: `/outputs/${path.basename(outPath)}`,
+      publicUrl
+    });
+  } catch (err) {
+    console.error(`[API] ${req.path} Error:`, err);
+    res.status(500).json({ error: err.message, details: err.stderr || null });
+  }
+};
+
+export const radialAction = async (req, res) => {
+  if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required' });
+  try {
+    const outPath = await radialTransition(req.files, parseFloat(req.body.transitionDuration));
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({ success: true, message: 'Radial transition complete!', outputFile: `/outputs/${path.basename(outPath)}`, publicUrl });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const circleAction = async (req, res) => {
+  if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required' });
+  try {
+    const outPath = await circleTransition(req.files, parseFloat(req.body.transitionDuration));
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({ success: true, message: 'Circle transition complete!', outputFile: `/outputs/${path.basename(outPath)}`, publicUrl });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const videoKenBurnsAction = async (req, res) => {
+  if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Video file required' });
+  try {
+    const videoFile = req.files[0];
+    const outPath = await videoKenBurns(videoFile.path, req.body.zoomType || 'in', req.body.aspectRatio || 'landscape');
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({
+      success: true,
+      message: 'Video Ken Burns complete!',
+      outputFile: `/outputs/${path.basename(outPath)}`,
+      publicUrl
+    });
+  } catch (err) {
+    console.error(`[API] ${req.path} Error:`, err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const kenBurnsAction = async (req, res) => {
+  if (!req.files?.image || !req.files?.audio) {
+    return res.status(400).json({ error: 'Both image and audio files required' });
+  }
+  try {
+    const outPath = await kenBurns(req.files.image[0].path, req.files.audio[0].path, req.body.zoomType);
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({
+      success: true,
+      message: 'Ken Burns effect applied!',
+      outputFile: `/outputs/${path.basename(outPath)}`,
+      publicUrl
+    });
+  } catch (err) {
+    console.error(`[API] ${req.path} Error:`, err);
+    res.status(500).json({ error: err.message, details: err.stderr || null });
+  }
+};
+
+export const agentKenBurns = async (req, res) => {
+  const { imageFilename, audioFilename, zoomType } = req.body;
+  if (!imageFilename || !audioFilename) {
+    return res.status(400).json({ error: 'Both imageFilename and audioFilename required' });
+  }
+  try {
+    const imagePath = path.join(config.uploadsDir, imageFilename);
+    const audioPath = path.join(config.uploadsDir, audioFilename);
+    const outPath = await kenBurns(imagePath, audioPath, zoomType);
+    const publicUrl = await uploadToSupabase(outPath);
+    res.json({
+      success: true,
+      message: 'Agent Ken Burns complete',
+      outputFile: `/outputs/${path.basename(outPath)}`,
+      publicUrl
+    });
+  } catch (err) {
+    console.error(`[API] ${req.path} Error:`, err);
+    res.status(500).json({ error: err.message, details: err.stderr || null });
+  }
+};
+

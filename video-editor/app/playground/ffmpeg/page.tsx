@@ -90,6 +90,16 @@ const tools = [
     status: "New"
   },
   {
+    title: "Video Ken Burns",
+    description: "Apply cinematic zoom and pan motion directly to video footage.",
+    href: "/playground/ffmpeg/video-ken-burns",
+    icon: Maximize2,
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-50",
+    borderColor: "border-indigo-100",
+    status: "New"
+  },
+  {
     title: "Whisper Transcriber",
     description: "Neural speech-to-text with word-level temporal precision.",
     href: "/playground/openai/whisper",

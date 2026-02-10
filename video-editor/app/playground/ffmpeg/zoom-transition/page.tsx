@@ -23,6 +23,7 @@ export default function ZoomTransitionPage() {
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>("");
   const [transitionDuration, setTransitionDuration] = useState<number>(1.5);
+  const [transitionType, setTransitionType] = useState<"zoom" | "blur" | "zoom-out" | "radial" | "circle">("zoom");
 
   const fileRefA = useRef<HTMLInputElement>(null);
   const fileRefB = useRef<HTMLInputElement>(null);
@@ -42,7 +43,6 @@ export default function ZoomTransitionPage() {
       setErrorDetails(null);
     }
   };
-
   const handleApplyTransition = async () => {
     if (!clipA || !clipB) {
       setError("Please select both clips");
@@ -52,7 +52,16 @@ export default function ZoomTransitionPage() {
     setIsProcessing(true);
     setError(null);
     setErrorDetails(null);
-    setProgress("Uploading sequential signals...");
+
+    const label = {
+      "zoom": "Zoom In",
+      "zoom-out": "Zoom Out",
+      "blur": "Blur Crossfade",
+      "radial": "Radial Sweep",
+      "circle": "Circle Iris"
+    }[transitionType];
+
+    setProgress(`Executing ${label} optics...`);
 
     try {
       const formData = new FormData();
@@ -60,9 +69,15 @@ export default function ZoomTransitionPage() {
       formData.append("files", clipB);
       formData.append("transitionDuration", transitionDuration.toString());
 
-      setProgress("Executing Zoom In optics...");
+      const endpoint = {
+        "zoom": "/api/ffmpeg/zoom-transition",
+        "zoom-out": "/api/ffmpeg/zoom-out-transition",
+        "blur": "/api/ffmpeg/blur-transition",
+        "radial": "/api/ffmpeg/radial-transition",
+        "circle": "/api/ffmpeg/circle-transition"
+      }[transitionType];
 
-      const response = await fetch("/api/ffmpeg/zoom-transition", {
+      const response = await fetch(endpoint, {
         method: "POST",
         body: formData,
       });
@@ -82,6 +97,8 @@ export default function ZoomTransitionPage() {
       setIsProcessing(false);
     }
   };
+
+
 
   const clearClip = (side: "A" | "B") => {
     if (side === "A") {
@@ -238,6 +255,47 @@ export default function ZoomTransitionPage() {
                       <div className="flex justify-between text-[8px] font-bold text-neutral-400 uppercase tracking-widest">
                          <span>Snappy</span>
                          <span>Cinematic</span>
+                      </div>
+                   </div>
+
+                   <div className="space-y-4 pt-4 border-t border-neutral-50">
+                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-neutral-400">Transition Style</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button 
+                          variant={transitionType === "zoom" ? "default" : "outline"}
+                          className={`text-[9px] font-black uppercase tracking-widest h-10 rounded-xl ${transitionType === "zoom" ? "bg-indigo-600 text-white" : "border-neutral-200 text-neutral-500"}`}
+                          onClick={() => setTransitionType("zoom")}
+                        >
+                          Zoom In
+                        </Button>
+                        <Button 
+                          variant={transitionType === "zoom-out" ? "default" : "outline"}
+                          className={`text-[9px] font-black uppercase tracking-widest h-10 rounded-xl ${transitionType === "zoom-out" ? "bg-indigo-600 text-white" : "border-neutral-200 text-neutral-500"}`}
+                          onClick={() => setTransitionType("zoom-out")}
+                        >
+                          Zoom Out
+                        </Button>
+                        <Button 
+                          variant={transitionType === "blur" ? "default" : "outline"}
+                          className={`text-[9px] font-black uppercase tracking-widest h-10 rounded-xl ${transitionType === "blur" ? "bg-indigo-600 text-white" : "border-neutral-200 text-neutral-500"}`}
+                          onClick={() => setTransitionType("blur")}
+                        >
+                          Blur Fade
+                        </Button>
+                        <Button 
+                          variant={transitionType === "radial" ? "default" : "outline"}
+                          className={`text-[9px] font-black uppercase tracking-widest h-10 rounded-xl ${transitionType === "radial" ? "bg-indigo-600 text-white" : "border-neutral-200 text-neutral-500"}`}
+                          onClick={() => setTransitionType("radial")}
+                        >
+                          Radial Sweep
+                        </Button>
+                        <Button 
+                          variant={transitionType === "circle" ? "default" : "outline"}
+                          className={`text-[9px] font-black uppercase tracking-widest h-10 rounded-xl ${transitionType === "circle" ? "bg-indigo-600 text-white" : "border-neutral-200 text-neutral-500"}`}
+                          onClick={() => setTransitionType("circle")}
+                        >
+                          Circle Iris
+                        </Button>
                       </div>
                    </div>
 

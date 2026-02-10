@@ -35,11 +35,22 @@ router.post('/api/watermark', upload.fields([
 
 router.post('/api/concat', upload.array('files', 10), ffmpegController.concat);
 router.post('/api/light-leak', upload.array('files', 3), ffmpegController.lightLeak);
+router.post('/api/batch-light-leak', upload.array('files', 12), ffmpegController.batchLightLeak);
 router.post('/api/zoom-transition', upload.array('files', 2), ffmpegController.zoomTransition);
+router.post('/api/blur-transition', upload.array('files', 2), ffmpegController.blurTransition);
+router.post('/api/zoom-out-transition', upload.array('files', 2), ffmpegController.zoomOutTransition);
+router.post('/api/radial-transition', upload.array('files', 2), ffmpegController.radialAction);
+router.post('/api/circle-transition', upload.array('files', 2), ffmpegController.circleAction);
+router.post('/api/video-ken-burns', upload.array('files', 1), ffmpegController.videoKenBurnsAction);
 router.post('/api/merge', upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'audio', maxCount: 1 }
 ]), ffmpegController.merge);
+
+router.post('/api/ken-burns', upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'audio', maxCount: 1 }
+]), ffmpegController.kenBurnsAction);
 
 // Project Production Routes
 router.post('/api/project/stitch', ffmpegController.projectStitch);
@@ -49,5 +60,6 @@ router.post('/api/agent/probe', ffmpegController.agentProbe);
 router.post('/api/agent/trim', ffmpegController.agentTrim);
 router.post('/api/agent/concat', ffmpegController.agentConcat);
 router.post('/api/agent/merge', ffmpegController.agentMergeAudioVideo);
+router.post('/api/agent/ken-burns', ffmpegController.agentKenBurns);
 
 export default router;

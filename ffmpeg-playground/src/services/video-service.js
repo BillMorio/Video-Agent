@@ -1,6 +1,7 @@
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import config from '../config/storage.js';
+// Force reload for batch light leak
 
 export const convertVideo = (inputPath, outputFormat = 'mp4') => {
   const outputPath = path.join(config.outputsDir, `converted-${Date.now()}.${outputFormat}`);
@@ -418,36 +419,24 @@ export const lightLeakTransition = async (files, transitionDuration = 0.8) => {
   ]);
 
   // Timing calculations
-  // Restore safe duration and calculate a centered xfade
   const safeTransDur = Math.min(transitionDuration, dur1 * 0.8, dur2 * 0.8, 2.5) || 1.1;
   const overlayOffset = dur1 - safeTransDur;
   const overlaySpeed = durOverlay / safeTransDur;
 
-  // Centered XFade: The actual video cut happens during the peak of the flare
-  // Shifted even further (35% delay) to ensure Clip A holds into the peak flare.
   const xfadeDuration = safeTransDur * 0.45; 
   const xfadeOffset = overlayOffset + (safeTransDur * 0.35);
 
-  console.log(`[FFmpeg] Light Leak (Extra Grace): dur1=${dur1}, trans=${safeTransDur}, overlayOffset=${overlayOffset}, xfadeOffset=${xfadeOffset}, xfadeDur=${xfadeDuration}`);
+  console.log(`[FFmpeg] Light Leak: dur1=${dur1}, trans=${safeTransDur}, xfadeOffset=${xfadeOffset}`);
 
   const filterParts = [
-    // 1. Normalize all inputs
     `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v0]`,
     `[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v1]`,
-    
-    // 2. Process flare - Restore simple fade-out (No fade-in to preserve "snap" and tint)
     `[2:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=PTS/${overlaySpeed}[flare_scaled]`,
     `[flare_scaled]trim=end=${safeTransDur},setpts=PTS-STARTPTS[flare_trimmed]`,
     `[flare_trimmed]fade=t=out:st=${safeTransDur * 0.8}:d=${safeTransDur * 0.2}[flare_faded]`,
     `[flare_faded]tpad=start_duration=${overlayOffset}:color=black,setpts=PTS+${overlayOffset}/TB,format=yuv420p[flare_delayed]`,
-    
-    // 3. Centered Base transition: Clip A holds longer, Clip B starts later
     `[v0][v1]xfade=transition=fade:duration=${xfadeDuration}:offset=${xfadeOffset},format=yuv420p[base_vid]`,
-    
-    // 4. Blend with lighten mode (Restored for best color/tint flow)
     `[base_vid][flare_delayed]blend=all_mode=lighten:shortest=0,format=yuv420p[outv]`,
-    
-    // 5. Audio crossfade (Simple linear for predictability)
     `[0:a][1:a]acrossfade=d=${xfadeDuration}[outa]`
   ];
 
@@ -457,20 +446,110 @@ export const lightLeakTransition = async (files, transitionDuration = 0.8) => {
       .input(files[1].path)
       .input(files[2].path)
       .complexFilter(filterParts.join(';'))
+      .outputOptions(['-map', '[outv]', '-map', '[outa]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac'])
+      .output(outputPath)
+      .on('start', (cmd) => console.log('[FFmpeg] Started Light Leak Transition:', cmd))
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(new Error(err.message)))
+      .run();
+  });
+};
+
+export const batchLightLeakTransition = async (files, transitionDuration = 0.8) => {
+  const outputPath = path.join(config.outputsDir, `batch-light-leak-${Date.now()}.mp4`);
+  
+  // Last file is the overlay
+  const sourceFiles = files.slice(0, -1);
+  const overlayFile = files[files.length - 1];
+
+  if (sourceFiles.length < 2) throw new Error('At least 2 source clips + 1 overlay required');
+
+  const getInfo = (filePath) => {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) return resolve({ duration: 0, fps: 30 });
+        const vs = metadata.streams.find(s => s.codec_type === 'video');
+        let fps = 30;
+        if (vs && vs.r_frame_rate) {
+          const [num, den] = vs.r_frame_rate.split('/').map(Number);
+          if (num && den) fps = num / den;
+        }
+        resolve({ duration: metadata.format.duration || 0, fps });
+      });
+    });
+  };
+
+  const infos = await Promise.all(sourceFiles.map(f => getInfo(f.path)));
+  const overlayInfo = await getInfo(overlayFile.path);
+
+  const filterParts = [];
+  const overlayInputIndex = files.length - 1;
+
+  // 1. Normalize all source clips
+  sourceFiles.forEach((_, i) => {
+    filterParts.push(`[${i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[norm_v${i}]`);
+    filterParts.push(`[${i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[norm_a${i}]`);
+  });
+
+  // 2. Build Sequential XFade and Overlay Chain
+  let currentVid = `norm_v0`;
+  let currentAud = `norm_a0`;
+  let totalTimeBeforeTransition = 0;
+
+  for (let i = 0; i < sourceFiles.length - 1; i++) {
+    const dur1 = infos[i].duration;
+    const dur2 = infos[i+1].duration;
+    const safeTransDur = Math.min(transitionDuration, dur1 * 0.4, dur2 * 0.4, 1.5) || 0.8;
+    
+    // We want the peak of the flare at the transition point
+    const xfadeDuration = safeTransDur * 0.45;
+    const xfadeOffset = (totalTimeBeforeTransition + dur1) - (safeTransDur * 0.5);
+    
+    const nextVid = `xfade_v${i}`;
+    const nextAud = `xfade_a${i}`;
+
+    // Apply XFade
+    filterParts.push(`[${currentVid}][norm_v${i+1}]xfade=transition=fade:duration=${xfadeDuration}:offset=${xfadeOffset},format=yuv420p[${nextVid}]`);
+    filterParts.push(`[${currentAud}][norm_a${i+1}]acrossfade=d=${xfadeDuration}[${nextAud}]`);
+
+    // Prepare Overlay for this junction
+    const overlaySpeed = overlayInfo.duration / safeTransDur;
+    const flareStartupDelay = xfadeOffset - (safeTransDur * 0.1); // Start slightly before peak
+    
+    const layerVid = `layer_v${i}`;
+    filterParts.push(`[${overlayInputIndex}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=PTS/${overlaySpeed}[flare_s${i}]`);
+    filterParts.push(`[flare_s${i}]trim=end=${safeTransDur},setpts=PTS-STARTPTS[flare_t${i}]`);
+    filterParts.push(`[flare_t${i}]tpad=start_duration=${flareStartupDelay}:color=black,setpts=PTS+${flareStartupDelay}/TB[flare_d${i}]`);
+    
+    // Blend with previous cumulative video
+    const blendedVid = `blend_v${i}`;
+    filterParts.push(`[${nextVid}][flare_d${i}]blend=all_mode=lighten:shortest=0,format=yuv420p[${blendedVid}]`);
+
+    currentVid = blendedVid;
+    currentAud = nextAud;
+    totalTimeBeforeTransition += (dur1 - xfadeDuration); // Approximate offset for next loop
+  }
+
+  return new Promise((resolve, reject) => {
+    let command = ffmpeg();
+    files.forEach(f => { command = command.input(f.path); });
+    
+    command
+      .complexFilter(filterParts.join(';'))
       .outputOptions([
-        '-map', '[outv]', 
-        '-map', '[outa]', 
-        '-c:v', 'libx264', 
-        '-preset', 'ultrafast', 
-        '-crf', '18', 
+        '-map', `[${currentVid}]`,
+        '-map', `[${currentAud}]`,
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '18',
         '-pix_fmt', 'yuv420p',
         '-c:a', 'aac'
       ])
       .output(outputPath)
-      .on('start', (cmd) => console.log('[FFmpeg] Started Light Leak Transition:', cmd))
+      .on('start', (cmd) => console.log('[FFmpeg] Started Batch Light Leak:', cmd))
       .on('end', () => resolve(outputPath))
-      .on('error', (err, stdout, stderr) => {
-        console.error('[FFmpeg] Light Leak Error:', err.message);
+      .on('error', (err) => {
+        console.error('[FFmpeg] Batch Light Leak error:', err.message);
         reject(new Error(err.message));
       })
       .run();
@@ -530,6 +609,293 @@ export const zoomInTransition = async (files, transitionDuration = 1.0) => {
       .on('end', () => resolve(outputPath))
       .on('error', (err, stdout, stderr) => {
         console.error('[FFmpeg] Zoom In Transition Error:', err.message);
+        reject(new Error(err.message));
+      })
+      .run();
+  });
+};
+
+export const blurCrossfade = async (files, transitionDuration = 1.0) => {
+  const outputPath = path.join(config.outputsDir, `blur-crossfade-${Date.now()}.mp4`);
+  
+  if (files.length < 2) throw new Error('Blur Crossfade requires 2 files: Clip A and Clip B.');
+
+  const getVideoDuration = (filePath) => {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        resolve(err ? 0 : (metadata.format.duration || 0));
+      });
+    });
+  };
+
+  const [dur1, dur2] = await Promise.all([
+    getVideoDuration(files[0].path),
+    getVideoDuration(files[1].path)
+  ]);
+
+  const safeTransDur = Math.min(transitionDuration, dur1 * 0.8, dur2 * 0.8, 3.0) || 1.0;
+  const offset = dur1 - safeTransDur;
+
+  const filterParts = [
+    // Normalize
+    `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v0]`,
+    `[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v1]`,
+    
+    // Optimized Blur Crossfade logic:
+    // Using the built-in 'hblur' transition is significantly more stable and performant.
+    `[v0][v1]xfade=transition=hblur:duration=${safeTransDur}:offset=${offset},format=yuv420p[outv]`,
+    `[0:a][1:a]acrossfade=d=${safeTransDur}[outa]`
+  ];
+
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(files[0].path)
+      .input(files[1].path)
+      .complexFilter(filterParts.join(';'))
+      .outputOptions(['-map', '[outv]', '-map', '[outa]', '-c:v', 'libx264', '-preset', 'ultrafast'])
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(err))
+      .run();
+  });
+};
+
+export const zoomOutTransitionLogic = async (files, transitionDuration = 1.0) => {
+  const outputPath = path.join(config.outputsDir, `zoom-out-${Date.now()}.mp4`);
+  
+  if (files.length < 2) throw new Error('Zoom Out requires 2 files: Clip A and Clip B.');
+
+  const getVideoInfo = (filePath) => {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) return resolve({ duration: 0, width: 1920, height: 1080 });
+        const vs = metadata.streams.find(s => s.codec_type === 'video');
+        resolve({ 
+          duration: metadata.format.duration || 0, 
+          width: vs?.width || 1920, 
+          height: vs?.height || 1080 
+        });
+      });
+    });
+  };
+
+  const [dur1, dur2] = await Promise.all([
+    getVideoInfo(files[0].path).then(i => i.duration),
+    getVideoInfo(files[1].path).then(i => i.duration)
+  ]);
+
+  const safeTransDur = Math.min(transitionDuration, dur1 * 0.8, dur2 * 0.8, 3.0) || 1.0;
+  const offset = dur1 - safeTransDur;
+  const totalFramesB = Math.ceil(dur2 * 30);
+  const transFrames = Math.ceil(safeTransDur * 30);
+
+  console.log(`[FFmpeg] Manual Zoom Out: dur1=${dur1}, trans=${safeTransDur}, offset=${offset}`);
+
+  const filterParts = [
+    // 1. Normalize Clip A
+    `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v0]`,
+    
+    // 2. Optimized Manual Zoom Out for Clip B
+    // We scale by 1.2x at start and smoothly move to 1.0x over the transition period.
+    // Using zoompan with d=1 and s=1920x1080 is the standard way to do this.
+    `[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v1_pre]`,
+    `[v1_pre]zoompan=z='1.2-0.2*min(on/(${safeTransDur}*30),1)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d=1:s=1920x1080:fps=30,format=yuv420p[v1]`,
+    
+    // 3. Combine with standard fade
+    `[v0][v1]xfade=transition=fade:duration=${safeTransDur}:offset=${offset},format=yuv420p[outv]`,
+    `[0:a][1:a]acrossfade=d=${safeTransDur}[outa]`
+  ];
+
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(files[0].path)
+      .input(files[1].path)
+      .complexFilter(filterParts.join(';'))
+      .outputOptions(['-map', '[outv]', '-map', '[outa]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20', '-pix_fmt', 'yuv420p'])
+      .output(outputPath)
+      .on('start', (cmd) => console.log('[FFmpeg] Started Manual Zoom Out:', cmd))
+      .on('end', () => resolve(outputPath))
+      .on('error', (err, stdout, stderr) => {
+        console.error('[FFmpeg] Manual Zoom Out Error:', err.message);
+        reject(new Error(err.message));
+      })
+      .run();
+  });
+};
+
+export const radialTransition = async (files, transitionDuration = 1.0) => {
+  const outputPath = path.join(config.outputsDir, `radial-${Date.now()}.mp4`);
+  const dur1 = await new Promise(r => ffmpeg.ffprobe(files[0].path, (e, m) => r(m?.format?.duration || 0)));
+  const safeDur = Math.min(transitionDuration, dur1 * 0.8, 3.0);
+  const offset = dur1 - safeDur;
+
+  const filter = [
+    `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v0]`,
+    `[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v1]`,
+    `[v0][v1]xfade=transition=radial:duration=${safeDur}:offset=${offset},format=yuv420p[outv]`,
+    `[0:a][1:a]acrossfade=d=${safeDur}[outa]`
+  ];
+
+  return new Promise((r, j) => {
+    ffmpeg().input(files[0].path).input(files[1].path).complexFilter(filter.join(';'))
+      .outputOptions(['-map', '[outv]', '-map', '[outa]', '-c:v', 'libx264', '-preset', 'ultrafast'])
+      .output(outputPath).on('end', () => r(outputPath)).on('error', j).run();
+  });
+};
+
+export const circleTransition = async (files, transitionDuration = 1.0) => {
+  const outputPath = path.join(config.outputsDir, `circle-${Date.now()}.mp4`);
+  const dur1 = await new Promise(r => ffmpeg.ffprobe(files[0].path, (e, m) => r(m?.format?.duration || 0)));
+  const safeDur = Math.min(transitionDuration, dur1 * 0.8, 3.0);
+  const offset = dur1 - safeDur;
+
+  const filter = [
+    `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v0]`,
+    `[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v1]`,
+    `[v0][v1]xfade=transition=circleclose:duration=${safeDur}:offset=${offset},format=yuv420p[outv]`,
+    `[0:a][1:a]acrossfade=d=${safeDur}[outa]`
+  ];
+
+  return new Promise((r, j) => {
+    ffmpeg().input(files[0].path).input(files[1].path).complexFilter(filter.join(';'))
+      .outputOptions(['-map', '[outv]', '-map', '[outa]', '-c:v', 'libx264', '-preset', 'ultrafast'])
+      .output(outputPath).on('end', () => r(outputPath)).on('error', j).run();
+  });
+};
+
+export const kenBurns = async (imagePath, audioPath, zoomType = 'in') => {
+  const outputPath = path.join(config.outputsDir, `ken-burns-${Date.now()}.mp4`);
+  
+  const getDuration = (filePath) => {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        resolve(err ? 0 : (metadata.format.duration || 0));
+      });
+    });
+  };
+
+  const audioDuration = await getDuration(audioPath);
+  if (audioDuration === 0) throw new Error('Could not determine audio duration');
+  
+  const fps = 30;
+  const totalFrames = Math.ceil(audioDuration * fps);
+  const startZoom = zoomType === 'in' ? 1.0 : 1.3;
+  const endZoom = zoomType === 'in' ? 1.3 : 1.0;
+
+  // Stability fix: Scale to 4K first, then zoompan at 4K, then scale back down to 1080p
+  // This eliminates the 'shaking' caused by integer rounding at lower resolutions.
+  const upW = 3840;
+  const upH = 2160;
+
+  // d=1 means PRODUCE 1 frame per input frame. Since we use -loop 1, we consume one frame at a time.
+  const zoomFilter = `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d=1:s=${upW}x${upH}:fps=${fps}`;
+
+  console.log(`[FFmpeg] Ken Burns (Anti-Jitter 4K): dur=${audioDuration}s, frames=${totalFrames}, zoom=${startZoom}->${endZoom}`);
+
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(imagePath)
+      .inputOptions(['-loop 1'])
+      .input(audioPath)
+      .complexFilter([
+        // Step 1: Scale to 4K with lanczos for max detail
+        // Step 2: Apply zoompan at 4K resolution
+        // Step 3: Downscale back to 1080p for public viewing
+        `[0:v]scale=${upW}:${upH}:force_original_aspect_ratio=increase,crop=${upW}:${upH},setsar=1,${zoomFilter},scale=1920:1080:flags=lanczos,format=yuv420p[v]`,
+        `[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`
+      ])
+      .outputOptions([
+        '-map', '[v]',
+        '-map', '[a]',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '18',
+        '-t', audioDuration,
+        '-pix_fmt', 'yuv420p'
+      ])
+      .output(outputPath)
+      .on('start', (cmd) => console.log('[FFmpeg] Started Anti-Jitter Ken Burns:', cmd))
+      .on('end', () => resolve(outputPath))
+      .on('error', (err, stdout, stderr) => {
+        console.error('[FFmpeg] Ken Burns error:', err.message);
+        reject(new Error(err.message));
+      })
+      .run();
+  });
+};
+
+export const videoKenBurns = async (videoPath, zoomType = 'in', aspectRatio = 'landscape') => {
+  const outputPath = path.join(config.outputsDir, `video-ken-burns-${Date.now()}.mp4`);
+  
+  const getInfo = (filePath) => {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) return resolve({ duration: 0, width: 1920, height: 1080, fps: 30 });
+        const vs = metadata.streams.find(s => s.codec_type === 'video');
+        
+        // Parse FPS (e.g., "30/1" or "24000/1001")
+        let fps = 30;
+        if (vs && vs.r_frame_rate) {
+          const [num, den] = vs.r_frame_rate.split('/').map(Number);
+          if (num && den) fps = num / den;
+        }
+
+        resolve({ 
+          duration: metadata.format.duration || 0, 
+          width: vs?.width || 1920, 
+          height: vs?.height || 1080,
+          fps
+        });
+      });
+    });
+  };
+
+  const info = await getInfo(videoPath);
+  if (info.duration === 0) throw new Error('Could not determine video duration');
+  
+  const fps = info.fps;
+  const totalFrames = Math.ceil(info.duration * fps);
+  const startZoom = zoomType === 'in' ? 1.0 : (zoomType === 'out' ? 1.3 : 1.1);
+  const endZoom = zoomType === 'in' ? 1.3 : (zoomType === 'out' ? 1.0 : 1.1);
+
+  // Anti-Jitter Resolution Config
+  const isPortrait = aspectRatio === 'portrait';
+  const upW = isPortrait ? 2160 : 3840;
+  const upH = isPortrait ? 3840 : 2160;
+  const finalW = isPortrait ? 1080 : 1920;
+  const finalH = isPortrait ? 1920 : 1080;
+
+  let zoomFilter;
+  if (zoomType === 'pan') {
+    // Pan from top-left to bottom-right
+    zoomFilter = `zoompan=z=1.2:x='(on/${totalFrames})*(iw-iw/zoom)':y='(on/${totalFrames})*(ih-ih/zoom)':d=1:s=${upW}x${upH}:fps=${fps}`;
+  } else {
+    // Standard Zoom In/Out
+    zoomFilter = `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d=1:s=${upW}x${upH}:fps=${fps}`;
+  }
+
+  console.log(`[FFmpeg] Video Ken Burns (${zoomType}, ${aspectRatio}): dur=${info.duration}s, zoom=${startZoom}->${endZoom}`);
+
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(videoPath)
+      .complexFilter([
+        `[0:v]scale=${upW}:${upH}:force_original_aspect_ratio=increase,crop=${upW}:${upH},setsar=1,${zoomFilter},scale=${finalW}:${finalH}:flags=lanczos,format=yuv420p[v]`
+      ])
+      .outputOptions([
+        '-map', '[v]',
+        '-map', '0:a?', // Map audio if it exists
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '18',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'copy'
+      ])
+      .output(outputPath)
+      .on('start', (cmd) => console.log('[FFmpeg] Started Video Ken Burns:', cmd))
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => {
+        console.error('[FFmpeg] Video Ken Burns error:', err.message);
         reject(new Error(err.message));
       })
       .run();
