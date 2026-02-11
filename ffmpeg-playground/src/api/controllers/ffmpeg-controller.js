@@ -387,70 +387,86 @@ export const projectStitch = async (req, res) => {
     console.log('[API] Paths:', downloadedPaths);
 
     // 2. Segmented Assembly Logic
-    // We iterate through scenes and check for 'light-leak' transition
-    // If found, we combine the current and next scene into a segment.
     console.log('[API] Starting Segmented Assembly...');
     const finalSegments = [];
-    const scenes = req.body.scenes || []; // Assuming scenes metadata is passed
+    const scenes = req.body.scenes || []; 
     
-    for (let i = 0; i < downloadedPaths.length; i++) {
-      const currentPath = downloadedPaths[i];
-      const nextPath = downloadedPaths[i + 1];
-      const currentScene = scenes[i];
-      const nextScene = scenes[i + 1];
+    // NEW: Batch Light Leak Mode (Single command for the whole sequence)
+    if (transition === 'batch-light-leak') {
+      console.log('[API] Using Batch Light Leak Orchestration Mode');
+      
+      // Determine overlay
+      let overlayPath = null;
+      const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/9255039-hd_1920_1080_25fps.mp4";
 
-      // Check if this scene has a light-leak transition and there's a next scene
-      if (currentScene?.transition?.type === 'light-leak' && nextPath) {
-        console.log(`[API] Processing Light Leak Transition for Scene ${i}`);
-        console.log(`[API] Scene ${i} Transition Metadata:`, currentScene.transition);
-        
-        // Find a light leak overlay asset. 
-        // 1. Try specified assetUrl from transition
-        // 2. Try global light-leak URL from settings
-        // 3. Try PRESET overlay URL
-        // 4. Fallback to local 'light-leak-overlay.mp4'
-        let overlayPath = null;
-        // const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/9255201-hd_1920_1080_24fps.mp4";
-        const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/9255039-hd_1920_1080_25fps.mp4";
-        
+      if (globalSettings?.lightLeakOverlayUrl) {
+        overlayPath = await downloadFile(globalSettings.lightLeakOverlayUrl);
+      } else {
+        const localFallback = path.join(config.uploadsDir, 'light-leak-overlay.mp4');
         try {
-        // try {
-          if (currentScene.transition.assetUrl) {
-            console.log(`[API] Downloading specified scene overlay: ${currentScene.transition.assetUrl}`);
-            overlayPath = await downloadFile(currentScene.transition.assetUrl);
-          } else if (globalSettings?.lightLeakOverlayUrl) {
-            console.log(`[API] Downloading global overlay setting: ${globalSettings.lightLeakOverlayUrl}`);
-            overlayPath = await downloadFile(globalSettings.lightLeakOverlayUrl);
-          } else {
-            // Try local file first, then hardcoded URL
-            const localFallback = path.join(config.uploadsDir, 'light-leak-overlay.mp4');
-            try {
-              await fsPromises.access(localFallback);
-              overlayPath = localFallback;
-            } catch {
-              console.log(`[API] Local overlay not found, using preset default: ${PRESET_LEAK_URL}`);
-              overlayPath = await downloadFile(PRESET_LEAK_URL);
+          await fsPromises.access(localFallback);
+          overlayPath = localFallback;
+        } catch {
+          overlayPath = await downloadFile(PRESET_LEAK_URL);
+        }
+      }
+
+      console.log(`[API] Final Overlay Local Path: ${overlayPath}`);
+
+      const filesForBatch = downloadedPaths.map(p => ({ path: p }));
+      filesForBatch.push({ path: overlayPath });
+
+      console.log(`[API] Executing Batch Light Leak Transition with ${downloadedPaths.length} clips`);
+      const batchResultPath = await batchLightLeakTransition(filesForBatch, duration || 1.5);
+      
+      finalSegments.push({ path: batchResultPath, isProcessed: true });
+    } else {
+      // Existing individual/segmented logic
+      for (let i = 0; i < downloadedPaths.length; i++) {
+        const currentPath = downloadedPaths[i];
+        const nextPath = downloadedPaths[i + 1];
+        const currentScene = scenes[i];
+
+        // Check if this scene has a light-leak transition and there's a next scene
+        if (currentScene?.transition?.type === 'light-leak' && nextPath) {
+          console.log(`[API] Processing Individual Light Leak Transition for Scene ${i}`);
+          
+          let overlayPath = null;
+          const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/9255039-hd_1920_1080_25fps.mp4";
+          
+          try {
+            if (currentScene.transition.assetUrl) {
+              overlayPath = await downloadFile(currentScene.transition.assetUrl);
+            } else if (globalSettings?.lightLeakOverlayUrl) {
+              overlayPath = await downloadFile(globalSettings.lightLeakOverlayUrl);
+            } else {
+              const localFallback = path.join(config.uploadsDir, 'light-leak-overlay.mp4');
+              try {
+                await fsPromises.access(localFallback);
+                overlayPath = localFallback;
+              } catch {
+                overlayPath = await downloadFile(PRESET_LEAK_URL);
+              }
             }
+            
+            const segmentPath = await lightLeakTransition(
+              [
+                { path: currentPath },
+                { path: nextPath },
+                { path: overlayPath }
+              ],
+              currentScene.transition.duration || 1.1
+            );
+            
+            finalSegments.push({ path: segmentPath, isProcessed: true });
+            i++; // Skip the next scene
+          } catch (err) {
+            console.warn('[API] Light Leak overlay failed, falling back to normal:', err.message);
+            finalSegments.push({ path: currentPath });
           }
-          
-          console.log(`[API] Final overlay selection: ${overlayPath}`);
-          const segmentPath = await lightLeakTransition(
-            [
-              { path: currentPath },
-              { path: nextPath },
-              { path: overlayPath }
-            ],
-            currentScene.transition.duration || 1.5
-          );
-          
-          finalSegments.push({ path: segmentPath, isProcessed: true });
-          i++; // Skip the next scene as it's now part of this segment
-        } catch (err) {
-          console.warn('[API] Light Leak overlay not available:', err.message, '. Falling back to normal concat.');
+        } else {
           finalSegments.push({ path: currentPath });
         }
-      } else {
-        finalSegments.push({ path: currentPath });
       }
     }
 

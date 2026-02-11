@@ -464,6 +464,8 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
 
   if (sourceFiles.length < 2) throw new Error('At least 2 source clips + 1 overlay required');
 
+  console.log(`[FFmpeg] Batch Light Leak: Processing ${sourceFiles.length} clips with overlay`);
+
   const getInfo = (filePath) => {
     return new Promise((resolve) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
@@ -482,6 +484,8 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
   const infos = await Promise.all(sourceFiles.map(f => getInfo(f.path)));
   const overlayInfo = await getInfo(overlayFile.path);
 
+  console.log('[FFmpeg] Clip durations:', infos.map((info, i) => `Clip ${i}: ${info.duration.toFixed(2)}s`));
+
   const filterParts = [];
   const overlayInputIndex = files.length - 1;
 
@@ -491,33 +495,55 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
     filterParts.push(`[${i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[norm_a${i}]`);
   });
 
+  // 1.5. Split the overlay into N-1 copies (one for each transition)
+  const numTransitions = sourceFiles.length - 1;
+  if (numTransitions > 1) {
+    // Create split filter with N-1 outputs
+    const splitOutputs = Array.from({ length: numTransitions }, (_, i) => `[overlay_copy${i}]`).join('');
+    filterParts.push(`[${overlayInputIndex}:v]split=${numTransitions}${splitOutputs}`);
+  } else {
+    // Only one transition, no split needed
+    filterParts.push(`[${overlayInputIndex}:v]null[overlay_copy0]`);
+  }
+
   // 2. Build Sequential XFade and Overlay Chain
   let currentVid = `norm_v0`;
   let currentAud = `norm_a0`;
-  let totalTimeBeforeTransition = 0;
+  let cumulativeTime = 0;
 
   for (let i = 0; i < sourceFiles.length - 1; i++) {
     const dur1 = infos[i].duration;
     const dur2 = infos[i+1].duration;
     const safeTransDur = Math.min(transitionDuration, dur1 * 0.4, dur2 * 0.4, 1.5) || 0.8;
     
-    // We want the peak of the flare at the transition point
+    // Calculate the offset where the xfade should occur
+    // For the first transition (i=0), it's at the end of clip 0
+    // For subsequent transitions, it's cumulative time + duration of current segment
     const xfadeDuration = safeTransDur * 0.45;
-    const xfadeOffset = (totalTimeBeforeTransition + dur1) - (safeTransDur * 0.5);
+    let xfadeOffset;
+    
+    if (i === 0) {
+      // First transition: happens at the end of the first clip
+      xfadeOffset = dur1 - (safeTransDur * 0.5);
+    } else {
+      // Subsequent transitions: cumulative time + current segment duration
+      xfadeOffset = cumulativeTime + dur1 - (safeTransDur * 0.5);
+    }
     
     const nextVid = `xfade_v${i}`;
     const nextAud = `xfade_a${i}`;
+
+    console.log(`[FFmpeg] Transition ${i}: offset=${xfadeOffset.toFixed(2)}s, duration=${xfadeDuration.toFixed(2)}s, transDur=${safeTransDur.toFixed(2)}s`);
 
     // Apply XFade
     filterParts.push(`[${currentVid}][norm_v${i+1}]xfade=transition=fade:duration=${xfadeDuration}:offset=${xfadeOffset},format=yuv420p[${nextVid}]`);
     filterParts.push(`[${currentAud}][norm_a${i+1}]acrossfade=d=${xfadeDuration}[${nextAud}]`);
 
-    // Prepare Overlay for this junction
+    // Prepare Overlay for this junction (use the split copy instead of original input)
     const overlaySpeed = overlayInfo.duration / safeTransDur;
-    const flareStartupDelay = xfadeOffset - (safeTransDur * 0.1); // Start slightly before peak
+    const flareStartupDelay = Math.max(0, xfadeOffset - (safeTransDur * 0.1)); // Start slightly before peak
     
-    const layerVid = `layer_v${i}`;
-    filterParts.push(`[${overlayInputIndex}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=PTS/${overlaySpeed}[flare_s${i}]`);
+    filterParts.push(`[overlay_copy${i}]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=PTS/${overlaySpeed}[flare_s${i}]`);
     filterParts.push(`[flare_s${i}]trim=end=${safeTransDur},setpts=PTS-STARTPTS[flare_t${i}]`);
     filterParts.push(`[flare_t${i}]tpad=start_duration=${flareStartupDelay}:color=black,setpts=PTS+${flareStartupDelay}/TB[flare_d${i}]`);
     
@@ -527,8 +553,13 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
 
     currentVid = blendedVid;
     currentAud = nextAud;
-    totalTimeBeforeTransition += (dur1 - xfadeDuration); // Approximate offset for next loop
+    
+    // Update cumulative time: add the duration of the segment minus the overlap
+    cumulativeTime += (dur1 - xfadeDuration);
   }
+
+  console.log(`[FFmpeg] Final output streams: video=[${currentVid}], audio=[${currentAud}]`);
+  console.log(`[FFmpeg] Filter chain has ${filterParts.length} parts`);
 
   return new Promise((resolve, reject) => {
     let command = ffmpeg();
@@ -547,14 +578,19 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
       ])
       .output(outputPath)
       .on('start', (cmd) => console.log('[FFmpeg] Started Batch Light Leak:', cmd))
-      .on('end', () => resolve(outputPath))
-      .on('error', (err) => {
+      .on('end', () => {
+        console.log('[FFmpeg] Batch Light Leak complete:', outputPath);
+        resolve(outputPath);
+      })
+      .on('error', (err, stdout, stderr) => {
         console.error('[FFmpeg] Batch Light Leak error:', err.message);
+        console.error('[FFmpeg] stderr:', stderr);
         reject(new Error(err.message));
       })
       .run();
   });
 };
+
 export const zoomInTransition = async (files, transitionDuration = 1.0) => {
   const outputPath = path.join(config.outputsDir, `zoom-transition-${Date.now()}.mp4`);
   
@@ -779,16 +815,25 @@ export const kenBurns = async (imagePath, audioPath, zoomType = 'in') => {
   
   const fps = 30;
   const totalFrames = Math.ceil(audioDuration * fps);
-  const startZoom = zoomType === 'in' ? 1.0 : 1.3;
-  const endZoom = zoomType === 'in' ? 1.3 : 1.0;
-
+  
   // Stability fix: Scale to 4K first, then zoompan at 4K, then scale back down to 1080p
   // This eliminates the 'shaking' caused by integer rounding at lower resolutions.
   const upW = 3840;
   const upH = 2160;
-
-  // d=1 means PRODUCE 1 frame per input frame. Since we use -loop 1, we consume one frame at a time.
-  const zoomFilter = `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d=1:s=${upW}x${upH}:fps=${fps}`;
+  
+  let startZoom, endZoom, zoomFilter;
+  
+  if (zoomType === 'pan') {
+    // Pan: subtle zoom with lateral movement
+    startZoom = 1.2;
+    endZoom = 1.2;
+    zoomFilter = `zoompan=z=1.2:x='(on/${totalFrames})*(iw-iw/zoom)':y='(on/${totalFrames})*(ih-ih/zoom)':d=1:s=${upW}x${upH}:fps=${fps}`;
+  } else {
+    // Standard zoom in/out
+    startZoom = zoomType === 'in' ? 1.0 : 1.3;
+    endZoom = zoomType === 'in' ? 1.3 : 1.0;
+    zoomFilter = `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d=1:s=${upW}x${upH}:fps=${fps}`;
+  }
 
   console.log(`[FFmpeg] Ken Burns (Anti-Jitter 4K): dur=${audioDuration}s, frames=${totalFrames}, zoom=${startZoom}->${endZoom}`);
 
@@ -855,8 +900,8 @@ export const videoKenBurns = async (videoPath, zoomType = 'in', aspectRatio = 'l
   
   const fps = info.fps;
   const totalFrames = Math.ceil(info.duration * fps);
-  const startZoom = zoomType === 'in' ? 1.0 : (zoomType === 'out' ? 1.3 : 1.1);
-  const endZoom = zoomType === 'in' ? 1.3 : (zoomType === 'out' ? 1.0 : 1.1);
+  const startZoom = zoomType === 'in' ? 1.0 : (zoomType === 'out' ? 1.2 : 1.1);
+  const endZoom = zoomType === 'in' ? 1.2 : (zoomType === 'out' ? 1.0 : 1.1);
 
   // Anti-Jitter Resolution Config
   const isPortrait = aspectRatio === 'portrait';
