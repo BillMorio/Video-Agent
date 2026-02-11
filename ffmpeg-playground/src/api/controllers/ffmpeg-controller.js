@@ -362,7 +362,7 @@ export const agentConcat = async (req, res) => {
 };
 
 // Hardcoded light leak preset URL
-const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/vecteezy_professional-light-leaks-pack-film-burn-overlay-free_65731626.mp4";
+const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/merged-1770838789313.mp4";
 
 export const projectStitch = async (req, res) => {
   console.log('>>> [BACKEND] projectStitch ENTERED');

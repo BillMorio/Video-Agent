@@ -404,19 +404,26 @@ export const lightLeakTransition = async (files, transitionDuration = 0.8) => {
   
   if (files.length < 3) throw new Error('Light Leak requires 3 files: Clip A, Clip B, and the Overlay Asset.');
 
-  const getVideoDuration = (filePath) => {
+  const getInfo = (filePath) => {
     return new Promise((resolve) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
-        resolve(err ? 0 : (metadata.format.duration || 0));
+        if (err) return resolve({ duration: 0, hasAudio: false });
+        const as = metadata.streams.find(s => s.codec_type === 'audio');
+        resolve({ duration: metadata.format.duration || 0, hasAudio: !!as });
       });
     });
   };
 
-  const [dur1, dur2, durOverlay] = await Promise.all([
-    getVideoDuration(files[0].path),
-    getVideoDuration(files[1].path),
-    getVideoDuration(files[2].path)
+  const [info1, info2, infoOverlay] = await Promise.all([
+    getInfo(files[0].path),
+    getInfo(files[1].path),
+    getInfo(files[2].path)
   ]);
+
+  const dur1 = info1.duration;
+  const dur2 = info2.duration;
+  const durOverlay = infoOverlay.duration;
+  const overlayHasAudio = infoOverlay.hasAudio;
 
   // Timing calculations
   const safeTransDur = Math.min(transitionDuration, dur1 * 0.8, dur2 * 0.8, 2.5) || 1.1;
@@ -426,7 +433,7 @@ export const lightLeakTransition = async (files, transitionDuration = 0.8) => {
   const xfadeDuration = safeTransDur * 0.45; 
   const xfadeOffset = overlayOffset + (safeTransDur * 0.35);
 
-  console.log(`[FFmpeg] Light Leak: dur1=${dur1}, trans=${safeTransDur}, xfadeOffset=${xfadeOffset}`);
+  console.log(`[FFmpeg] Light Leak: dur1=${dur1}, trans=${safeTransDur}, xfadeOffset=${xfadeOffset}, hasAudio=${overlayHasAudio}`);
 
   const filterParts = [
     `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[v0]`,
@@ -436,9 +443,46 @@ export const lightLeakTransition = async (files, transitionDuration = 0.8) => {
     `[flare_trimmed]fade=t=out:st=${safeTransDur * 0.8}:d=${safeTransDur * 0.2}[flare_faded]`,
     `[flare_faded]tpad=start_duration=${overlayOffset}:color=black,setpts=PTS+${overlayOffset}/TB,format=yuv420p[flare_delayed]`,
     `[v0][v1]xfade=transition=fade:duration=${xfadeDuration}:offset=${xfadeOffset},format=yuv420p[base_vid]`,
-    `[base_vid][flare_delayed]blend=all_mode=lighten:shortest=0,format=yuv420p[outv]`,
-    `[0:a][1:a]acrossfade=d=${xfadeDuration}[outa]`
+    `[base_vid][flare_delayed]blend=all_mode=lighten:shortest=0,format=yuv420p[outv]`
   ];
+
+  // Clip A Audio
+  if (info1.hasAudio) {
+    filterParts.push(`[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a0]`);
+  } else {
+    filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100:duration=${dur1}[a0]`);
+  }
+
+  // Clip B Audio
+  if (info2.hasAudio) {
+    filterParts.push(`[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a1]`);
+  } else {
+    filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100:duration=${dur2}[a1]`);
+  }
+
+  let currentAud = `[a0][a1]acrossfade=d=${xfadeDuration}[outa_base]`;
+  let finalAudOutput = '[outa_base]';
+
+  if (overlayHasAudio) {
+    const buildAtempo = (s) => {
+      const filters = [];
+      let cur = s;
+      while (cur > 2.0) { filters.push('atempo=2.0'); cur /= 2.0; }
+      while (cur < 0.5) { filters.push('atempo=0.5'); cur /= 0.5; }
+      filters.push(`atempo=${cur.toFixed(4)}`);
+      return filters.join(',');
+    };
+
+    const delayMs = Math.round(overlayOffset * 1000);
+    filterParts.push(`[2:a]${buildAtempo(overlaySpeed)},atrim=end=${safeTransDur}[flare_aud_trans]`);
+    filterParts.push(`[flare_aud_trans]adelay=${delayMs}|${delayMs}[flare_aud_delayed]`);
+    filterParts.push(currentAud);
+    filterParts.push(`[outa_base][flare_aud_delayed]amix=inputs=2:duration=first[outa]`);
+    finalAudOutput = '[outa]';
+  } else {
+    filterParts.push(currentAud.replace('[outa_base]', '[outa]'));
+    finalAudOutput = '[outa]';
+  }
 
   return new Promise((resolve, reject) => {
     ffmpeg()
@@ -446,7 +490,7 @@ export const lightLeakTransition = async (files, transitionDuration = 0.8) => {
       .input(files[1].path)
       .input(files[2].path)
       .complexFilter(filterParts.join(';'))
-      .outputOptions(['-map', '[outv]', '-map', '[outa]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac'])
+      .outputOptions(['-map', '[outv]', '-map', finalAudOutput, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac'])
       .output(outputPath)
       .on('start', (cmd) => console.log('[FFmpeg] Started Light Leak Transition:', cmd))
       .on('end', () => resolve(outputPath))
@@ -499,7 +543,11 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
   // 1. Normalize all source clips
   sourceFiles.forEach((_, i) => {
     filterParts.push(`[${i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1,format=yuv420p[norm_v${i}]`);
-    filterParts.push(`[${i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[norm_a${i}]`);
+    if (infos[i].hasAudio) {
+      filterParts.push(`[${i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[norm_a${i}]`);
+    } else {
+      filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100:duration=${infos[i].duration}[norm_a${i}]`);
+    }
   });
 
   // 1.5. Split the overlay into N-1 copies (one for each transition)
