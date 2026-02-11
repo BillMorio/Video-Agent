@@ -336,4 +336,41 @@ export async function poll_heygen_video_status(args: PollHeygenStatusArgs) {
   throw new Error("Heygen video generation timed out");
 }
 
+export interface ApplyVideoKenBurnsArgs {
+  videoUrl: string;
+  zoomType?: 'in' | 'out' | 'pan';
+  aspectRatio?: 'landscape' | 'portrait' | 'square';
+}
+
+/**
+ * Applies a ken-burns zoom effect to an A-roll avatar video.
+ * This should be called LAST, after the avatar video is generated.
+ */
+export async function apply_video_ken_burns(args: ApplyVideoKenBurnsArgs) {
+  console.log(`[ARollTools] Applying Ken Burns effect (${args.zoomType || 'in'}) to video: ${args.videoUrl.substring(0, 50)}...`);
+
+  // 1. Download the video
+  const videoBlob = await fetch(args.videoUrl).then(res => res.blob());
+  
+  // 2. Send to FFmpeg server for ken-burns processing
+  const formData = new FormData();
+  formData.append("files", videoBlob, "input.mp4");
+  formData.append("zoomType", args.zoomType || "in");
+  formData.append("aspectRatio", args.aspectRatio || "landscape");
+
+  const response = await fetch(`${FFMPEG_SERVER_URL}/api/video-ken-burns`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Ken Burns effect application failed");
+
+  console.log(`[ARollTools] Ken Burns complete! Public URL: ${data.publicUrl}`);
+
+  return {
+    status: "success",
+    videoUrl: data.publicUrl
+  };
+}
 

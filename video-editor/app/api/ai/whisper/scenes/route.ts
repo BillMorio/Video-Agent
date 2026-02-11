@@ -89,7 +89,19 @@ export async function POST(req: NextRequest) {
                         type: { type: "string" },
                         avatarId: { type: "string" },
                         provider: { type: "string" },
-                        scale: { type: "number", description: "Video scale/framing (1.0 to 2.0)" }
+                        scale: { type: "number", description: "Video scale/framing (1.0 to 2.0)" },
+                        kenBurns: {
+                          type: "object",
+                          description: "Optional Ken-Burns cinematic zoom effect",
+                          properties: {
+                            enabled: { type: "boolean", description: "Whether to apply Ken-Burns effect" },
+                            zoomType: { 
+                              type: "string", 
+                              enum: ["in", "out", "pan"],
+                              description: "Type of zoom: 'in' for emphasis, 'out' for reveal, 'pan' for subtle movement"
+                            }
+                          }
+                        }
                       }
                     },
                     bRoll: {
@@ -142,6 +154,25 @@ export async function POST(req: NextRequest) {
     
     // Apply Mid-Silence Snapping to resolve bleeding voice overs
     const snappedStoryboard = snapStoryboardToSilence(storyboard, transcription.words);
+
+    // Add Ken-Burns configuration to A-roll scenes
+    if (snappedStoryboard.scenes) {
+      snappedStoryboard.scenes = snappedStoryboard.scenes.map((scene: any) => {
+        if (scene.visualType === 'a-roll') {
+          // Use Claude's kenBurns specification if provided, otherwise default to enabled with 'in'
+          const kenBurnsConfig = scene.aRoll?.kenBurns || { enabled: true, zoomType: 'in' };
+          
+          return {
+            ...scene,
+            payload: {
+              ...scene.payload,
+              kenBurns: kenBurnsConfig
+            }
+          };
+        }
+        return scene;
+      });
+    }
 
     return NextResponse.json(snappedStoryboard);
 

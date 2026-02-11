@@ -3,12 +3,7 @@
 import { useState } from "react";
 import { 
   LayoutGrid, 
-  FileText, 
-  FolderOpen, 
-  Settings, 
-  Download,
-  ChevronLeft,
-  ChevronRight
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,10 +24,7 @@ interface NavSidebarProps {
 export function NavSidebar({ activeItem = "studio", isCollapsed = false, onItemClick }: NavSidebarProps) {
   const navItems: NavItem[] = [
     { id: "studio", label: "Studio", sub: "Primary Workflow", icon: <LayoutGrid className="w-4 h-4" /> },
-    { id: "scripts", label: "Scripts", sub: "Production Drafts", icon: <FileText className="w-4 h-4" /> },
-    { id: "assets", label: "Assets", sub: "Media Library", icon: <FolderOpen className="w-4 h-4" /> },
     { id: "settings", label: "Settings", sub: "Configuration", icon: <Settings className="w-4 h-4" /> },
-    { id: "export", label: "Export", sub: "Final Render", icon: <Download className="w-4 h-4" /> },
   ];
 
   return (

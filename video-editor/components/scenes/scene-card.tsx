@@ -53,7 +53,7 @@ export function SceneCard({
   onClick,
   onDoubleClick
 }: SceneCardProps) {
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const visualType = scene.visual_type || scene.visualType || "b-roll";
 
@@ -71,18 +71,34 @@ export function SceneCard({
 
   // Get asset data based on visual type
   const getAssetData = () => {
-    switch (visualType) {
-      case "a-roll":
-        return { provider: scene.payload?.provider, status: scene.payload?.assetStatus };
-      case "b-roll":
-        return { provider: scene.payload?.provider, status: scene.payload?.assetStatus };
-      case "graphics":
-        return { provider: scene.payload?.provider, status: scene.payload?.assetStatus };
-      case "image":
-        return { provider: scene.payload?.provider, status: scene.payload?.assetStatus };
-      default:
-        return { provider: undefined, status: undefined };
+    // Check if scene has actual assets
+    const hasAsset = scene.final_video_url || scene.asset_url || scene.thumbnail_url;
+    
+    // Determine provider from payload or infer from visual type
+    let provider = scene.payload?.provider;
+    
+    if (!provider && hasAsset) {
+      // Infer provider based on visual type when asset exists but provider not set
+      switch (visualType) {
+        case "a-roll":
+          provider = "wavespeed";
+          break;
+        case "b-roll":
+          provider = "pexels";
+          break;
+        case "graphics":
+          provider = "generated";
+          break;
+        case "image":
+          provider = "wavespeed";
+          break;
+      }
     }
+    
+    return { 
+      provider, 
+      status: scene.payload?.assetStatus || (hasAsset ? 'ready' : undefined)
+    };
   };
 
   const { provider, status: assetStatus } = getAssetData();
@@ -150,7 +166,6 @@ export function SceneCard({
               muted
               loop
               playsInline
-              autoPlay
             />
             {/* Play/Pause Button Overlay */}
             <button 
@@ -207,18 +222,20 @@ export function SceneCard({
           )} />
         </div>
         
-        {/* Center UI - Provider indicator */}
-        <div className="flex flex-col items-center gap-3 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 relative z-10">
-          <div className={cn(
-            "w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-xl flex items-center justify-center border border-white/20 shadow-2xl",
-            typeConfig.bgColor
-          )}>
-            {getProviderIcon() || <Plus className="w-6 h-6" />}
+        {/* Center UI - Provider indicator (only show when no video) */}
+        {!scene.final_video_url && (
+          <div className="flex flex-col items-center gap-3 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 relative z-10">
+            <div className={cn(
+              "w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-xl flex items-center justify-center border border-white/20 shadow-2xl",
+              typeConfig.bgColor
+            )}>
+              {getProviderIcon() || <Plus className="w-6 h-6" />}
+            </div>
+            <span className="technical-label text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-sm">
+              {provider?.toUpperCase() || "NO ASSET"}
+            </span>
           </div>
-          <span className="technical-label text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-sm">
-            {provider?.toUpperCase() || "NO ASSET"}
-          </span>
-        </div>
+        )}
         
         {/* Bottom overlay with timing */}
         <div className="absolute inset-x-0 bottom-0 p-4">
@@ -240,6 +257,12 @@ export function SceneCard({
                 <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 text-[9px] technical-label font-bold text-white shadow-sm">
                   <Aperture className="w-3.5 h-3.5 text-primary" /> 
                   Scale: {(scene.scale || scene.aRoll?.scale || 1.0).toFixed(1)}x
+                </div>
+              )}
+              {visualType === 'a-roll' && scene.payload?.kenBurns?.enabled && (
+                <div className="flex items-center gap-1.5 bg-blue-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-blue-400/30 text-[9px] technical-label font-bold text-blue-300 shadow-sm">
+                  <Camera className="w-3.5 h-3.5 text-blue-400" /> 
+                  KB: {(scene.payload.kenBurns.zoomType || 'in').toUpperCase()}
                 </div>
               )}
             </div>

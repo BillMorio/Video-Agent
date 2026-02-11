@@ -52,5 +52,21 @@ export const A_ROLL_AGENT_TOOLS: ChatCompletionTool[] = [
         required: ["audioUrl", "avatarId"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_video_ken_burns",
+      description: "Applies a ken-burns zoom effect to an A-roll avatar video. This should be called LAST, after the avatar video is generated. Only use this if the scene payload specifies kenBurns.enabled is true.",
+      parameters: {
+        type: "object",
+        properties: {
+          videoUrl: { type: "string", description: "The Supabase URL of the avatar video to apply the effect to" },
+          zoomType: { type: "string", enum: ["in", "out"], default: "in", description: "Type of zoom effect: 'in' for emphasis, 'out' for reveal (default: 'in')" },
+          aspectRatio: { type: "string", enum: ["landscape", "portrait", "square"], description: "Video aspect ratio (default: 'portrait' for A-roll)" }
+        },
+        required: ["videoUrl"]
+      }
+    }
   }
 ];

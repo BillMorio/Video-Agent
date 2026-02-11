@@ -14,7 +14,8 @@ export class ARollAgent implements BaseAgent {
   private TOOL_LOG_MAPPING: Record<string, string> = {
     'cut_audio_segment': 'Extracting narration segment and uploading to clinical storage',
     'generate_wavespeed_avatar_video': 'Generating and Polling Wavespeed AI synthesis (High-Speed)',
-    'generate_heygen_avatar_video': 'Generating and Polling Heygen AI synthesis'
+    'generate_heygen_avatar_video': 'Generating and Polling Heygen AI synthesis',
+    'apply_video_ken_burns': 'Applying Ken Burns zoom effect to avatar video'
   };
 
   private getAnthropicTools() {
@@ -40,6 +41,10 @@ export class ARollAgent implements BaseAgent {
         last_log: `${this.name}: Starting production for Scene ${scene.index}.`
       });
 
+      const kenBurnsConfig = scene.payload?.kenBurns;
+      const kenBurnsEnabled = kenBurnsConfig?.enabled === true;
+      const kenBurnsType = kenBurnsConfig?.zoomType || 'in';
+
       const systemPrompt = `You are the ${this.name}. ${this.role}
           
           PRODUCTION_AVATAR_IMAGE: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/Gemini_Generated_Image_afr4xlafr4xlafr4.png"
@@ -51,6 +56,7 @@ export class ARollAgent implements BaseAgent {
           - Scale (Framing): ${scene.scale || 1.0}
           - Script: "${scene.script}"
           - Master Audio: ${context.master_audio_url || "NOT_PROVIDED"}
+          - Ken Burns Effect: ${kenBurnsEnabled ? `ENABLED (${kenBurnsType})` : 'DISABLED'}
 
           PRODUCTION WORKFLOW (Reason-Act-Feedback):
           1. You operate in a loop. Execute tools sequentially to achieve the goal.
@@ -60,9 +66,14 @@ export class ARollAgent implements BaseAgent {
              - Use the PRODUCTION_AVATAR_IMAGE provided above.
              - Resolution: "480p" (MANDATORY). Do not attempt to use any other resolution.
              - THIS TOOL WILL WAIT FOR THE VIDEO TO BE READY. Do not call any other tools for this video.
-          4. FINISH: Once the generation returns 'success', respond with a final confirmation.
+          ${kenBurnsEnabled ? `4. STEP 3 (FINAL): Use 'apply_video_ken_burns' to apply a ${kenBurnsType} zoom effect to the generated video.
+             - Use the videoUrl from Step 2.
+             - Set zoomType to "${kenBurnsType}".
+             - Set aspectRatio to "landscape".
+             - This MUST be the LAST tool you call.
+          5. FINISH: Once ken-burns returns 'success', respond with a final confirmation.` : '4. FINISH: Once the generation returns \'success\', respond with a final confirmation.'}
           
-          CRITICAL: Do not respond with a final summary until you have the final video URL from the generation tool.`;
+          CRITICAL: Do not respond with a final summary until you have the final video URL from the ${kenBurnsEnabled ? 'ken-burns tool' : 'generation tool'}.`;
 
       // 2. Initialize Conversation History
       const messages: any[] = [
@@ -172,6 +183,19 @@ export class ARollAgent implements BaseAgent {
                     asset_url: toolResult.videoUrl,
                     final_video_url: toolResult.videoUrl,
                     payload: { ...scene.payload, ...toolResult }
+                  });
+                  Object.assign(scene, updatedScene);
+                }
+              } else if (toolName === 'apply_video_ken_burns') {
+                toolResult = await arollTools.apply_video_ken_burns({
+                  ...args,
+                  aspectRatio: args.aspectRatio || 'portrait'
+                });
+                
+                if (toolResult.status === 'success') {
+                  const updatedScene = await sceneService.update(scene.id, {
+                    final_video_url: toolResult.videoUrl,
+                    payload: { ...scene.payload, kenBurnsApplied: true }
                   });
                   Object.assign(scene, updatedScene);
                 }

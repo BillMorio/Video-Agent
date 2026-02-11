@@ -42,6 +42,9 @@ CREATE TABLE scenes (
     final_video_url TEXT, -- Processed/Trimmed link
     thumbnail_url TEXT, -- For UI preview
     payload JSONB DEFAULT '{}'::jsonb, -- Specialized params (Prompts, search queries, etc.)
+    -- Example payload for A-roll with ken-burns effect:
+    -- { "kenBurns": { "enabled": true, "zoomType": "in" | "out" | "pan" } }
+    -- Note: Aspect ratio is always 'portrait' for A-roll videos
     agent_state JSONB DEFAULT '{}'::jsonb, -- Persistent state for AI agent flows (e.g., { "step": "asset_acquired" })
 
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -96,4 +99,30 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER update_scenes_updated_at BEFORE UPDATE ON scenes FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+-- 8. APP SETTINGS TABLE (API Keys & Configuration)
+CREATE TABLE app_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key TEXT UNIQUE NOT NULL,
+    value TEXT,
+    category TEXT DEFAULT 'api_key',
+    is_encrypted BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Enable RLS for app_settings
+ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Allow all operations (adjust based on auth requirements)
+CREATE POLICY "Allow all operations on app_settings" 
+    ON app_settings FOR ALL 
+    USING (true);
+
+-- Trigger for app_settings updated_at
+CREATE TRIGGER update_app_settings_updated_at BEFORE UPDATE ON app_settings FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+-- Index for faster lookups
+CREATE INDEX idx_app_settings_key ON app_settings(key);
+CREATE INDEX idx_app_settings_category ON app_settings(category);
 CREATE TRIGGER update_agent_memory_updated_at BEFORE UPDATE ON agent_memory FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();

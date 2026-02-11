@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 import { useProject } from "@/hooks/use-projects";
 import { useScenes, useUpdateScene } from "@/hooks/use-scenes";
 import { useAgentState, useResetAgentState, useUpdateAgentState } from "@/hooks/use-agent-state";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { SettingsPanel } from "@/components/panels/settings-panel";
 
 // Agent to Icon Mapping for Premium UI
@@ -44,6 +44,7 @@ const AGENT_ICONS: Record<string, any> = {
 
 export default function DynamicStudioPage() {
   const params = useParams();
+  const router = useRouter();
   const projectId = params.projectId as string;
 
   // React Query Hooks (Real Data)
@@ -68,6 +69,14 @@ export default function DynamicStudioPage() {
   ]);
   const [activeView, setActiveView] = useState("studio");
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  const handleNavClick = (id: string) => {
+    if (id === "settings") {
+      router.push("/settings");
+    } else {
+      setActiveView(id);
+    }
+  };
 
   // Resize handling logic
   const startResizing = useCallback((e: React.MouseEvent) => {
@@ -250,7 +259,7 @@ export default function DynamicStudioPage() {
       <NavSidebar
         activeItem={activeView}
         isCollapsed={isSidebarCollapsed}
-        onItemClick={(id) => setActiveView(id)}
+        onItemClick={handleNavClick}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden relative z-10">

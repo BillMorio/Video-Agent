@@ -35,6 +35,14 @@ VISUAL TYPE SPECIFICATIONS:
       - 1.0 for standard medium shots (neutral explanations, general info)
       - 1.3-1.5 for engaged moments (important points, emphasis)
       - 1.6-2.0 for close-ups (intimate moments, emotional beats, key revelations)
+    * **Ken-Burns Effect** (OPTIONAL): You can specify a cinematic zoom effect for A-roll scenes:
+      - Include a 'kenBurns' object with:
+        - 'enabled': true/false
+        - 'zoomType': "in" (zoom in for emphasis) or "out" (zoom out for reveal)
+      - Use 'in' for building intensity or focusing attention
+      - Use 'out' for revealing context or creating breathing room
+      - NOTE: 'pan' is NOT available for video Ken-Burns (only for image-based scenes)
+      - If not specified, defaults to enabled with 'in' zoom type
     * NEVER exceed 4 seconds duration
     
   **b-roll**: Used for dynamic, action-oriented supplementary footage.

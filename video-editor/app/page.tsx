@@ -10,6 +10,7 @@ import { NavSidebar } from "@/components/panels/nav-sidebar";
 import { ScenePropertiesPanel } from "@/components/panels/scene-properties-panel";
 import { Scene } from "@/lib/types";
 import { sampleScenes, sampleProject } from "@/lib/sample-data";
+import { useRouter } from "next/navigation";
 
 export default function VideoEditorPage() {
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number | null>(null);
@@ -17,10 +18,19 @@ export default function VideoEditorPage() {
   const [scenes, setScenes] = useState<Scene[]>(sampleScenes);
   const [activeNavItem, setActiveNavItem] = useState("studio");
   const [toast, setToast] = useState<{ message: string, type: "success" | "error" } | null>(null);
+  const router = useRouter();
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleNavClick = (itemId: string) => {
+    if (itemId === "settings") {
+      router.push("/settings");
+    } else {
+      setActiveNavItem(itemId);
+    }
   };
 
   const addScene = () => {
@@ -67,7 +77,7 @@ export default function VideoEditorPage() {
       {/* Left Navigation Sidebar (Retractable) */}
       <NavSidebar 
         activeItem={activeNavItem} 
-        onItemClick={(id) => setActiveNavItem(id)} 
+        onItemClick={handleNavClick} 
       />
 
       {/* Main Content Area */}

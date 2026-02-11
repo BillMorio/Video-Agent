@@ -66,7 +66,7 @@ export const IMAGE_AGENT_TOOLS: ChatCompletionTool[] = [
         properties: {
           imageUrl: { type: "string", description: "Publicly accessible URL of the static image" },
           audioUrl: { type: "string", description: "Publicly accessible URL of the audio segment" },
-          zoomType: { type: "string", enum: ["in", "out"], default: "in", description: "Direction of the zoom effect" }
+          zoomType: { type: "string", enum: ["in", "out", "pan"], default: "in", description: "Type of zoom effect: 'in' for emphasis, 'out' for reveal, 'pan' for subtle movement" }
         },
         required: ["imageUrl", "audioUrl"]
       }

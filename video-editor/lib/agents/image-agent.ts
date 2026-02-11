@@ -54,6 +54,10 @@ export class ImageAgent implements BaseAgent {
       2. GENERATION: Use 'generate_wavespeed_image' with that prompt to create the static visual asset.
       3. AUDIO PREP: Use 'cut_audio_segment' to extract the narration for this specific section (${scene.start_time} to ${scene.end_time}).
       4. TEMPORAL SYNTHESIS: Use 'generate_ken_burns_video' to combine the image and audio into a zooming cinematic video.
+         - Choose zoomType based on narrative intent:
+           * 'in': Zoom in for emphasis, building intensity, or focusing attention
+           * 'out': Zoom out for revealing context, creating breathing room, or establishing setting
+           * 'pan': Subtle lateral movement for dynamic interest without dramatic zoom
       5. COMPLETION: Respond with final confirmation when the video is ready.
       
       CRITICAL: You must execute these logically. Do not attempt temporal synthesis before you have both the image and the audio segment.`;
