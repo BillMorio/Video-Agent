@@ -469,20 +469,27 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
   const getInfo = (filePath) => {
     return new Promise((resolve) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
-        if (err) return resolve({ duration: 0, fps: 30 });
+        if (err) return resolve({ duration: 0, fps: 30, hasAudio: false });
         const vs = metadata.streams.find(s => s.codec_type === 'video');
+        const as = metadata.streams.find(s => s.codec_type === 'audio');
         let fps = 30;
         if (vs && vs.r_frame_rate) {
           const [num, den] = vs.r_frame_rate.split('/').map(Number);
           if (num && den) fps = num / den;
         }
-        resolve({ duration: metadata.format.duration || 0, fps });
+        resolve({ duration: metadata.format.duration || 0, fps, hasAudio: !!as });
       });
     });
   };
 
   const infos = await Promise.all(sourceFiles.map(f => getInfo(f.path)));
-  const overlayInfo = await getInfo(overlayFile.path);
+  let overlayInfo = await getInfo(overlayFile.path);
+
+  // Safety check: if overlay duration is 0 (image or corrupted), default to a safe value to avoid division by zero
+  if (!overlayInfo.duration || overlayInfo.duration < 0.1) {
+    console.warn(`[FFmpeg] Warning: Overlay duration is ${overlayInfo.duration}s. Forcing safety duration of 10s to prevent crash.`);
+    overlayInfo.duration = 10;
+  }
 
   console.log('[FFmpeg] Clip durations:', infos.map((info, i) => `Clip ${i}: ${info.duration.toFixed(2)}s`));
 
@@ -497,13 +504,24 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
 
   // 1.5. Split the overlay into N-1 copies (one for each transition)
   const numTransitions = sourceFiles.length - 1;
+  const overlayHasAudio = overlayInfo.hasAudio;
+
   if (numTransitions > 1) {
-    // Create split filter with N-1 outputs
+    // Video split
     const splitOutputs = Array.from({ length: numTransitions }, (_, i) => `[overlay_copy${i}]`).join('');
-    filterParts.push(`[${overlayInputIndex}:v]split=${numTransitions}${splitOutputs}`);
+    filterParts.push(`[${overlayInputIndex}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p,split=${numTransitions}${splitOutputs}`);
+    
+    // Audio split (if exists)
+    if (overlayHasAudio) {
+      const splitAudOutputs = Array.from({ length: numTransitions }, (_, i) => `[overlay_aud_copy${i}]`).join('');
+      filterParts.push(`[${overlayInputIndex}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asplit=${numTransitions}${splitAudOutputs}`);
+    }
   } else {
-    // Only one transition, no split needed
-    filterParts.push(`[${overlayInputIndex}:v]null[overlay_copy0]`);
+    // Only one transition
+    filterParts.push(`[${overlayInputIndex}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p[overlay_copy0]`);
+    if (overlayHasAudio) {
+      filterParts.push(`[${overlayInputIndex}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[overlay_aud_copy0]`);
+    }
   }
 
   // 2. Build Sequential XFade and Overlay Chain
@@ -551,8 +569,36 @@ export const batchLightLeakTransition = async (files, transitionDuration = 0.8) 
     const blendedVid = `blend_v${i}`;
     filterParts.push(`[${nextVid}][flare_d${i}]blend=all_mode=lighten:shortest=0,format=yuv420p[${blendedVid}]`);
 
+    // Audio: If overlay has audio, process and mix it
+    if (overlayHasAudio) {
+      const atempoVal = overlaySpeed;
+      
+      const buildAtempo = (s) => {
+        const filters = [];
+        let cur = s;
+        while (cur > 2.0) { filters.push('atempo=2.0'); cur /= 2.0; }
+        while (cur < 0.5) { filters.push('atempo=0.5'); cur /= 0.5; }
+        filters.push(`atempo=${cur.toFixed(4)}`);
+        return filters.join(',');
+      };
+
+      const transAud = `trans_aud${i}`;
+      const delayedAud = `delayed_aud${i}`;
+      const mixedAud = `mixed_aud${i}`;
+
+      filterParts.push(`[overlay_aud_copy${i}]${buildAtempo(atempoVal)},atrim=end=${safeTransDur}[${transAud}]`);
+      // Use adelay to offset to exactly flareStartupDelay (converted to ms)
+      const delayMs = Math.round(flareStartupDelay * 1000);
+      filterParts.push(`[${transAud}]adelay=${delayMs}|${delayMs}[${delayedAud}]`);
+      
+      // Mix with current segment audio
+      filterParts.push(`[${nextAud}][${delayedAud}]amix=inputs=2:duration=first[${mixedAud}]`);
+      currentAud = mixedAud;
+    } else {
+      currentAud = nextAud;
+    }
+
     currentVid = blendedVid;
-    currentAud = nextAud;
     
     // Update cumulative time: add the duration of the segment minus the overlap
     cumulativeTime += (dur1 - xfadeDuration);

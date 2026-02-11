@@ -11,6 +11,8 @@ import {
   generateThumbnail,
   watermarkVideo,
   concatVideos,
+  adjustSpeed,
+  applyZoom,
   mergeAudioVideo,
   lightLeakTransition,
   batchLightLeakTransition,
@@ -359,9 +361,12 @@ export const agentConcat = async (req, res) => {
   }
 };
 
+// Hardcoded light leak preset URL
+const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/vecteezy_professional-light-leaks-pack-film-burn-overlay-free_65731626.mp4";
+
 export const projectStitch = async (req, res) => {
   console.log('>>> [BACKEND] projectStitch ENTERED');
-  const { sceneUrls, transition, duration, globalSettings, useFadeTransition = true } = req.body;
+  const { sceneUrls, transition, duration, globalSettings, useFadeTransition = true, useLightLeak = false } = req.body;
   
   console.log('[API] Project Stitch Request:', { 
     count: sceneUrls?.length,
@@ -369,7 +374,8 @@ export const projectStitch = async (req, res) => {
     transition,
     scenesCount: req.body.scenes?.length,
     globalLightLeak: globalSettings?.lightLeakOverlayUrl,
-    useFadeTransition
+    useFadeTransition,
+    useLightLeak
   });
 
   if (!sceneUrls || sceneUrls.length < 2) {
@@ -377,6 +383,7 @@ export const projectStitch = async (req, res) => {
   }
 
   let downloadedPaths = [];
+  let overlayPath = null;
   
   try {
     // 1. Download all assets in parallel
@@ -385,20 +392,40 @@ export const projectStitch = async (req, res) => {
     downloadedPaths = await Promise.all(downloadPromises);
     
     console.log(`[API] Successfully downloaded ${downloadedPaths.length} assets.`);
-    console.log('[API] Paths:', downloadedPaths);
 
-    // 2. Prepare segments for concatenation
-    console.log('[API] Preparing video segments for stitching...');
-    const finalSegments = downloadedPaths.map(p => ({ path: p }));
+    let outPath;
 
-    // 3. Concatenate all videos with or without fade transitions
-    const transitionType = useFadeTransition ? 'fade' : 'none';
-    console.log(`[API] Stitching ${finalSegments.length} videos with '${transitionType}' transition...`);
-    const outPath = await concatVideos(
-      finalSegments, 
-      transitionType,
-      duration || 1.0 // Transition duration
-    );
+    // 2. Handle Light Leak Transition if requested
+    if (useLightLeak) {
+      let leakUrl = globalSettings?.lightLeakOverlayUrl;
+      
+      // If no URL or it's a PNG/Image, use the preset video
+      if (!leakUrl || leakUrl.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) {
+        console.log('[API] Light Leak specificed but URL is missing or an image. Falling back to preset video...');
+        leakUrl = PRESET_LEAK_URL;
+      }
+
+      console.log(`[API] Cinematic Light Leak using: ${leakUrl}`);
+      overlayPath = await downloadFile(leakUrl);
+      
+      const filesWithOverlay = [
+        ...downloadedPaths.map(p => ({ path: p })),
+        { path: overlayPath }
+      ];
+
+      console.log(`[API] Stitching ${downloadedPaths.length} videos with Batch Light Leak...`);
+      outPath = await batchLightLeakTransition(filesWithOverlay, 1.5);
+    } else {
+      // 3. Normal concatenation with or without fade transitions
+      const transitionType = useFadeTransition ? 'fade' : 'none';
+      console.log(`[API] Stitching ${downloadedPaths.length} videos with '${transitionType}' transition...`);
+      const finalSegments = downloadedPaths.map(p => ({ path: p }));
+      outPath = await concatVideos(
+        finalSegments, 
+        transitionType,
+        duration || 1.0 // Transition duration
+      );
+    }
 
     // 4. Upload final master to Supabase
     console.log('[API] Uploading production master to storage...');
@@ -406,12 +433,10 @@ export const projectStitch = async (req, res) => {
 
     // 5. Cleanup temporary files
     console.log('[API] Cleaning up temporary assets...');
-    await Promise.all(downloadedPaths.map(p => fsPromises.unlink(p).catch(e => console.error('Unlink error:', e))));
-    // Clean up processed segments too
-    await Promise.all(finalSegments
-      .filter(s => s.isProcessed)
-      .map(s => fsPromises.unlink(s.path).catch(e => console.error('Segment cleanup error:', e)))
-    );
+    const cleanupPaths = [...downloadedPaths];
+    if (overlayPath) cleanupPaths.push(overlayPath);
+    
+    await Promise.all(cleanupPaths.map(p => fsPromises.unlink(p).catch(e => console.error('Unlink error:', e))));
     
     res.json({
       success: true,
@@ -423,7 +448,9 @@ export const projectStitch = async (req, res) => {
   } catch (err) {
     console.error('[API] Project Stitch Error:', err);
     // Attempt cleanup on failure
-    await Promise.all(downloadedPaths.map(p => fsPromises.unlink(p).catch(() => {})));
+    const cleanupPaths = [...downloadedPaths];
+    if (overlayPath) cleanupPaths.push(overlayPath);
+    await Promise.all(cleanupPaths.map(p => fsPromises.unlink(p).catch(() => {})));
     
     res.status(500).json({ 
       error: err.message,
