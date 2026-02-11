@@ -69,6 +69,7 @@ export default function DynamicStudioPage() {
   ]);
   const [activeView, setActiveView] = useState("studio");
   const [useFadeTransition, setUseFadeTransition] = useState(true);
+  const [useLightLeak, setUseLightLeak] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const handleNavClick = (id: string) => {
@@ -186,7 +187,7 @@ export default function DynamicStudioPage() {
       const response = await fetch(`/api/projects/${projectId}/stitch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ useFadeTransition })
+        body: JSON.stringify({ useFadeTransition, useLightLeak })
       });
 
       if (!response.ok) {
@@ -328,12 +329,33 @@ export default function DynamicStudioPage() {
               <>
                 <label 
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-muted/20 border border-border/40 cursor-pointer hover:bg-muted/30 transition-all"
+                  title="Apply cinematic light leak transitions between clips"
+                >
+                  <input
+                    type="checkbox"
+                    checked={useLightLeak}
+                    onChange={(e) => {
+                      setUseLightLeak(e.target.checked);
+                      if (e.target.checked) setUseFadeTransition(false);
+                    }}
+                    className="w-4 h-4 rounded border-border/60 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+                  />
+                  <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-foreground/70">
+                    Light Leak
+                  </span>
+                </label>
+
+                <label 
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-muted/20 border border-border/40 cursor-pointer hover:bg-muted/30 transition-all"
                   title="Enable smooth fade transitions between video clips"
                 >
                   <input
                     type="checkbox"
                     checked={useFadeTransition}
-                    onChange={(e) => setUseFadeTransition(e.target.checked)}
+                    onChange={(e) => {
+                      setUseFadeTransition(e.target.checked);
+                      if (e.target.checked) setUseLightLeak(false);
+                    }}
                     className="w-4 h-4 rounded border-border/60 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
                   />
                   <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-foreground/70">
@@ -356,7 +378,8 @@ export default function DynamicStudioPage() {
                   {isStitching ? <Clock className="w-4 h-4 animate-spin" /> : (masterVideoUrl ? <Download className="w-4 h-4" /> : <Layers className="w-4 h-4" />)}
                   {isStitching ? "ASSEMBLING..." : (masterVideoUrl ? "VIEW MASTER" : "EXPORT MASTER")}
               </button>
-              </>
+              </>
+
             )}
           </div>
         </header>

@@ -11,7 +11,7 @@ export async function POST(
 ) {
   const { projectId } = await params;
   const body = await req.json();
-  const { useFadeTransition = true } = body;
+  const { useFadeTransition = true, useLightLeak = false } = body;
 
   if (!projectId) {
     return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
@@ -65,6 +65,9 @@ export async function POST(
     // 3. Extract asset URLs in correct order (prefer final_video_url)
     const sceneUrls = validScenes.map(s => s.final_video_url || s.asset_url);
 
+    console.log(`[StitchOrchestrator] Use fade transition: ${useFadeTransition}`);
+    console.log(`[StitchOrchestrator] Use light leak transition: ${useLightLeak}`);
+    
     // 4. Trigger FFmpeg backend stitching
     console.log(`[StitchOrchestrator] Triggering FFmpeg build with ${sceneUrls.length} assets...`);
     const response = await fetch(`${FFMPEG_SERVER}/api/project/stitch`, {
@@ -76,6 +79,7 @@ export async function POST(
         transition: "batch-light-leak",
         duration: 1.5,
         useFadeTransition, // Pass the fade transition toggle
+        useLightLeak, // Pass the light leak transition toggle
         globalSettings: {
           lightLeakOverlayUrl: globalLightLeakUrl
         }
