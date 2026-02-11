@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { memoryService } from "@/lib/services/api/memory-service";
+import { settingsService } from "@/lib/services/api/settings-service";
 import Anthropic from "@anthropic-ai/sdk";
 import { DEFAULT_TRANSCRIPT_TO_SCENES_PROMPT } from "@/lib/agents/tools/production/prompts";
 
 export async function POST(req: NextRequest) {
-  const anthropicApiKey = process.env.ANTHROPIC_API;
+  const anthropicApiKey = await settingsService.getSetting('anthropic_api_key') || process.env.ANTHROPIC_API;
 
   if (!anthropicApiKey) {
     return NextResponse.json({ error: "Anthropic API key not configured" }, { status: 500 });
@@ -19,18 +20,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid transcription data" }, { status: 400 });
     }
 
-    // Fetch custom prompts if projectId is provided
+    // Fetch custom prompts: Priority: Project Memory > Global Settings > Default Hardcoded
     let defaultSystemPrompt = DEFAULT_TRANSCRIPT_TO_SCENES_PROMPT;
-    if (projectId) {
-        try {
-            const memory = await memoryService.getByProjectId(projectId);
-            if (memory?.metadata?.config?.transcript_to_scenes_prompt) {
-                defaultSystemPrompt = memory.metadata.config.transcript_to_scenes_prompt;
-                console.log(`[Scenes API] Using custom system prompt for project ${projectId}`);
-            }
-        } catch (e) {
-            console.warn(`[Scenes API] Failed to fetch project memory for ${projectId}:`, e);
+    
+    try {
+        const [memory, globalPrompt] = await Promise.all([
+            projectId ? memoryService.getByProjectId(projectId).catch(() => null) : Promise.resolve(null),
+            settingsService.getSetting('prompt_script_to_scene')
+        ]);
+
+        if (memory?.metadata?.config?.transcript_to_scenes_prompt) {
+            defaultSystemPrompt = memory.metadata.config.transcript_to_scenes_prompt;
+            console.log(`[Scenes API] Using project-specific system prompt`);
+        } else if (globalPrompt) {
+            defaultSystemPrompt = globalPrompt;
+            console.log(`[Scenes API] Using global system prompt from Settings`);
         }
+    } catch (e) {
+        console.warn(`[Scenes API] Failed to fetch settings/memory:`, e);
     }
 
     const visualTypesList = allowedVisualTypes && allowedVisualTypes.length > 0 
@@ -155,24 +162,6 @@ export async function POST(req: NextRequest) {
     // Apply Mid-Silence Snapping to resolve bleeding voice overs
     const snappedStoryboard = snapStoryboardToSilence(storyboard, transcription.words);
 
-    // Add Ken-Burns configuration to A-roll scenes
-    if (snappedStoryboard.scenes) {
-      snappedStoryboard.scenes = snappedStoryboard.scenes.map((scene: any) => {
-        if (scene.visualType === 'a-roll') {
-          // Use Claude's kenBurns specification if provided, otherwise default to enabled with 'in'
-          const kenBurnsConfig = scene.aRoll?.kenBurns || { enabled: true, zoomType: 'in' };
-          
-          return {
-            ...scene,
-            payload: {
-              ...scene.payload,
-              kenBurns: kenBurnsConfig
-            }
-          };
-        }
-        return scene;
-      });
-    }
 
     return NextResponse.json(snappedStoryboard);
 

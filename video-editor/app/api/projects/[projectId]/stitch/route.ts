@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sceneService } from "@/lib/services/api/scene-service";
 import { memoryService } from "@/lib/services/api/memory-service";
+import { settingsService } from "@/lib/services/api/settings-service";
 
 const FFMPEG_SERVER = "http://127.0.0.1:3333";
 
@@ -24,10 +25,19 @@ export async function POST(
       return NextResponse.json({ error: "No scenes found for this project" }, { status: 404 });
     }
 
-    // 1.5. Fetch project settings/memory
-    const memory = await memoryService.getByProjectId(projectId).catch(() => null);
-    const globalLightLeakUrl = memory?.metadata?.lightLeakOverlayUrl;
+    // 1.5. Fetch project settings/memory and global settings
+    const [memory, globalLeakUrl] = await Promise.all([
+      memoryService.getByProjectId(projectId).catch(() => null),
+      settingsService.getLightLeakOverlayUrl()
+    ]);
+    
+    // Priority: Project Memory > Global Settings
+    const globalLightLeakUrl = memory?.metadata?.lightLeakOverlayUrl || globalLeakUrl;
 
+    console.log(`[StitchOrchestrator] Light leak resolution:`);
+    console.log(`  - Project Memory Override: ${memory?.metadata?.lightLeakOverlayUrl || 'None'}`);
+    console.log(`  - Global Setting: ${globalLeakUrl || 'None'}`);
+    console.log(`  - Final Resolved URL: ${globalLightLeakUrl || 'None'}`);
     console.log(`[StitchOrchestrator] Found ${scenes.length} total scenes.`);
     
     // 2. Filter scenes that have some form of video asset (prefer final_video_url, fallback to asset_url)
@@ -60,7 +70,7 @@ export async function POST(
       body: JSON.stringify({ 
         sceneUrls,
         scenes: validScenes, // Pass scene metadata for transition selection
-        transition: "crossfade",
+        transition: "batch-light-leak",
         duration: 1.5,
         globalSettings: {
           lightLeakOverlayUrl: globalLightLeakUrl

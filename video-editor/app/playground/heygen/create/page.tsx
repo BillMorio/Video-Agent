@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { uploadToSupabase } from "@/lib/storage";
 
 export default function HeygenCreateVideoPage() {
   const [activeCharacterType, setActiveCharacterType] = useState<"avatar" | "talking_photo">("avatar");
@@ -47,6 +48,38 @@ export default function HeygenCreateVideoPage() {
   const [isTracking, setIsTracking] = useState(false);
   const [trackResult, setTrackResult] = useState<any>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
+
+  const [toast, setToast] = useState<{ message: string, type: "success" | "error" } | null>(null);
+  
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check size (HeyGen limit is usually 5MB or 10MB depending on tier, let's cap at 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      showToast("Audio file too large (max 10MB)", "error");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const publicUrl = await uploadToSupabase(file, `playground-audio/${Date.now()}-${file.name}`);
+      setFormData({ ...formData, audio_url: publicUrl });
+      showToast("Audio uploaded to Supabase successfully!");
+    } catch (err: any) {
+      console.error("Upload failed:", err);
+      showToast("Failed to upload audio to Supabase. Check logs.", "error");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -281,14 +314,69 @@ export default function HeygenCreateVideoPage() {
                     />
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500 ml-1">Audio URL</label>
-                    <Input 
-                      placeholder="https://example.com/audio.mp3" 
-                      className="rounded-xl border-neutral-100 focus:border-indigo-500 transition-all font-mono text-xs"
-                      value={formData.audio_url}
-                      onChange={(e) => setFormData({ ...formData, audio_url: e.target.value })}
-                    />
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500 ml-1">Audio Source</label>
+                       <div className="flex gap-2">
+                          <Input 
+                            placeholder="https://example.com/audio.mp3" 
+                            className="rounded-xl border-neutral-100 focus:border-indigo-500 transition-all font-mono text-xs flex-1"
+                            value={formData.audio_url}
+                            onChange={(e) => setFormData({ ...formData, audio_url: e.target.value })}
+                          />
+                          <div className="relative">
+                            <input 
+                              type="file" 
+                              accept="audio/*" 
+                              className="hidden" 
+                              id="audio-upload-input"
+                              onChange={handleAudioUpload}
+                              disabled={isUploading}
+                            />
+                            <Button 
+                              variant="outline"
+                              size="icon"
+                              className="rounded-xl border-neutral-100 h-10 w-10 shrink-0"
+                              onClick={() => document.getElementById('audio-upload-input')?.click()}
+                              disabled={isUploading}
+                            >
+                              {isUploading ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                              ) : (
+                                <Mic className="w-4 h-4 text-neutral-400" />
+                              )}
+                            </Button>
+                          </div>
+                       </div>
+                    </div>
+
+                    {formData.audio_url && (
+                      <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-100 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                            <Mic className="w-4 h-4 text-indigo-600" />
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="text-[8px] font-black uppercase tracking-widest text-neutral-400">Linked Asset</p>
+                            <p className="text-[10px] font-mono font-bold text-neutral-900 truncate">
+                              {formData.audio_url.split('/').pop()}
+                            </p>
+                          </div>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6 rounded-lg text-neutral-400 hover:text-rose-500"
+                          onClick={() => setFormData({ ...formData, audio_url: "" })}
+                        >
+                          <AlertCircle className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
+
+                    <p className="text-[8px] text-neutral-400 font-bold uppercase tracking-widest px-1">
+                      * Upload a local file or provide a public URL for character voice.
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -582,6 +670,24 @@ export default function HeygenCreateVideoPage() {
           </div>
         </div>
       </div>
+
+      {/* Toast notification */}
+      {toast && (
+        <div 
+          className={`fixed bottom-8 right-8 px-6 py-4 rounded-2xl shadow-2xl z-50 animate-in slide-in-from-bottom-4 transition-all flex items-center gap-3 border-2 ${
+            toast.type === "success" 
+            ? "bg-white border-emerald-100 text-emerald-900" 
+            : "bg-rose-50 border-rose-100 text-rose-900"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-rose-500" />
+          )}
+          <span className="text-sm font-black uppercase tracking-tight">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

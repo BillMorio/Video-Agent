@@ -12,18 +12,22 @@ export interface SearchPexelsArgs {
   apiKey?: string;
 }
 
+import { settingsService } from "@/lib/services/api/settings-service";
+
 /**
  * Searches the Pexels library for videos matching a query.
  */
 export async function search_pexels_library(args: SearchPexelsArgs) {
-  console.log(`[PexelsTool] Searching for "${args.query}" (Orientation: ${args.orientation || 'any'}, Size: ${args.size || 'any'})...`);
+  let apiKey = args.apiKey;
 
-  const apiKey = args.apiKey || process.env.PEXELS_API_KEY;
+  if (!apiKey) {
+    apiKey = await settingsService.getSetting('pexels_api_key') || process.env.PEXELS_API_KEY || undefined;
+  }
 
   if (!apiKey) {
     return {
       status: "failed",
-      error: "PEXELS_API_KEY is missing from environment variables."
+      error: "Pexels API key is not configured in environment or settings."
     };
   }
 

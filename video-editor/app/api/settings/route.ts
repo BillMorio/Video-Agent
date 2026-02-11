@@ -6,20 +6,19 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from('app_settings')
-      .select('key, value, is_encrypted')
-      .eq('category', 'api_key');
+      .select('key, value, is_encrypted, category');
 
     if (error) throw error;
 
     // Decrypt values and format as key-value pairs
-    const settings: Record<string, string> = {};
+    const settings: Record<string, any> = {};
     data?.forEach((setting: any) => {
       settings[setting.key] = setting.is_encrypted 
         ? decryptValue(setting.value || '')
         : setting.value || '';
     });
 
-    return NextResponse.json({ settings });
+    return NextResponse.json({ settings, raw: data });
   } catch (error: any) {
     console.error('Error fetching settings:', error);
     return NextResponse.json(
@@ -32,7 +31,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { key, value } = body;
+    const { key, value, category = 'api_key', is_encrypted = true } = body;
 
     if (!key) {
       return NextResponse.json(
@@ -41,17 +40,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Encrypt the value
-    const encryptedValue = encryptValue(value || '');
+    // Encrypt the value if requested
+    const finalValue = is_encrypted ? encryptValue(value || '') : (value || '');
 
     // Upsert the setting
     const { error } = await supabase
       .from('app_settings')
       .upsert({
         key,
-        value: encryptedValue,
-        category: 'api_key',
-        is_encrypted: true,
+        value: finalValue,
+        category,
+        is_encrypted,
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'key'

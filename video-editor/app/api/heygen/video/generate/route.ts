@@ -23,15 +23,16 @@ export async function POST(request: Request) {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Heygen Video] Generation failed:', response.status, errorText);
       return NextResponse.json(
-        { error: data.error?.message || data.message || 'Heygen API error' }, 
+        { error: `Heygen API error (${response.status}): ${errorText.substring(0, 100)}` }, 
         { status: response.status }
       );
     }
 
+    const data = await response.json();
     return NextResponse.json(data);
   } catch (error: any) {
     console.error('Error generating Heygen video:', error);

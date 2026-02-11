@@ -114,6 +114,13 @@ export default function HeygenPlaygroundPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+            <Link
+              href="/playground/heygen/generate-photo"
+              className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-bold uppercase tracking-widest text-xs flex items-center gap-2 hover:bg-indigo-700 transition-all active:scale-95 whitespace-nowrap"
+            >
+              <Sparkles className="w-4 h-4" />
+              Generate Photo Avatar
+            </Link>
             <button 
               onClick={fetchAvatars}
               disabled={loading}

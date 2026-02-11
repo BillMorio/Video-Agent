@@ -26,6 +26,7 @@ export interface GenerateKenBurnsVideoArgs {
 }
 
 import { DEFAULT_VISUAL_PROMPT_ENGINEER_PROMPT } from "./prompts";
+import { settingsService } from "@/lib/services/api/settings-service";
 
 /**
  * Uses Claude to generate a highly detailed, tech-optimized visual prompt.
@@ -33,12 +34,28 @@ import { DEFAULT_VISUAL_PROMPT_ENGINEER_PROMPT } from "./prompts";
 export async function generate_visual_prompt(args: GenerateVisualPromptArgs) {
   console.log(`[ImageTools] Generating visual prompt for script: "${args.scriptSegment.substring(0, 50)}..."`);
   
-  const defaultSystemPrompt = DEFAULT_VISUAL_PROMPT_ENGINEER_PROMPT;
+  // Priority: Custom > Global Setting > Hardcoded Default
+  let defaultSystemPrompt = DEFAULT_VISUAL_PROMPT_ENGINEER_PROMPT;
+  try {
+    const globalPrompt = await settingsService.getSetting('prompt_image_agent');
+    if (globalPrompt) {
+      defaultSystemPrompt = globalPrompt;
+      console.log(`[ImageTools] Using global system prompt from Settings`);
+    }
+  } catch (e) {
+    console.warn(`[ImageTools] Failed to fetch global prompt:`, e);
+  }
 
-  const apiKey = args.anthropicApiKey || process.env.ANTHROPIC_API;
-  if (!apiKey) throw new Error("Anthropic API key not configured");
+  // Priority: Custom > Global Setting > Env
+  let anthropicApiKey = args.anthropicApiKey;
+  
+  if (!anthropicApiKey) {
+    anthropicApiKey = await settingsService.getSetting('anthropic_api_key') || process.env.ANTHROPIC_API || undefined;
+  }
 
-  const anthropicClient = new Anthropic({ apiKey });
+  if (!anthropicApiKey) throw new Error("Anthropic API key not configured");
+
+  const anthropicClient = new Anthropic({ apiKey: anthropicApiKey });
 
   const response = await anthropicClient.messages.create({
     model: "claude-sonnet-4-20250514",
@@ -60,7 +77,12 @@ export async function generate_visual_prompt(args: GenerateVisualPromptArgs) {
  * Generates an image using Wavespeed Nano-Banana and polls for result.
  */
 export async function generate_wavespeed_image(args: GenerateWavespeedImageArgs) {
-  const apiKey = args.apiKey || process.env.WAVESPEED_API_KEY;
+  let apiKey = args.apiKey;
+  
+  if (!apiKey) {
+    apiKey = await settingsService.getSetting('wavespeed_api_key') || process.env.WAVESPEED_API_KEY || undefined;
+  }
+
   if (!apiKey) throw new Error("WAVESPEED_API_KEY is not configured");
 
   console.log(`[ImageTools] Initiating Wavespeed image generation (Key: ${args.apiKey ? 'Project' : 'System'}): "${args.prompt.substring(0, 50)}..."`);

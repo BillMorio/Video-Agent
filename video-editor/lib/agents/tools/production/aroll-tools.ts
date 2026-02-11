@@ -1,4 +1,5 @@
 import { uploadToSupabase } from "../../../storage";
+import { settingsService } from "@/lib/services/api/settings-service";
 
 export const FFMPEG_SERVER_URL = process.env.FFMPEG_SERVER_URL || "http://localhost:3333";
 
@@ -71,10 +72,15 @@ export async function cut_audio_segment(args: CutAudioSegmentArgs) {
  * Initiates video generation on Wavespeed AI (InfiniteTalk).
  */
 export async function generate_wavespeed_avatar_video(args: GenerateWavespeedVideoArgs) {
-  const apiKey = args.apiKey || process.env.WAVESPEED_API_KEY;
+  let apiKey = args.apiKey;
+  
+  if (!apiKey) {
+    apiKey = await settingsService.getSetting('wavespeed_api_key') || process.env.WAVESPEED_API_KEY || undefined;
+  }
+
   if (!apiKey) throw new Error("WAVESPEED_API_KEY is not configured");
 
-  console.log(`[ARollTools] Initiating Wavespeed generation with audio: ${args.audioUrl.substring(0, 50)}...`);
+  console.log(`[ARollTools] Initiating Wavespeed generation (Key: ${args.apiKey ? 'Project' : (apiKey === process.env.WAVESPEED_API_KEY ? 'System' : 'Global Settings')})`);
 
   const payload = {
     audio: args.audioUrl,
@@ -209,10 +215,15 @@ export async function generate_wavespeed_avatar_video(args: GenerateWavespeedVid
  * @deprecated Use generate_wavespeed_avatar_video for faster results
  */
 export async function generate_heygen_avatar_video(args: GenerateHeygenVideoArgs) {
-  const apiKey = args.apiKey || process.env.HEY_GEN_API;
+  let apiKey = args.apiKey;
+  
+  if (!apiKey) {
+    apiKey = await settingsService.getSetting('heygen_api_key') || process.env.HEY_GEN_API || undefined;
+  }
+
   if (!apiKey) throw new Error("HEY_GEN_API key is not configured");
 
-  console.log(`[ARollTools] Initiating Heygen generation with avatar: ${args.avatarId}, scale: ${args.scale ?? 1.0}`);
+  console.log(`[ARollTools] Initiating Heygen generation (Key: ${args.apiKey ? 'Project' : (apiKey === process.env.HEY_GEN_API ? 'System' : 'Global Settings')})`);
   
   const payload = {
     caption: args.caption ?? false,
