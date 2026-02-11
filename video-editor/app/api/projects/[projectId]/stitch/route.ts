@@ -10,6 +10,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params;
+  const body = await req.json();
+  const { useFadeTransition = true } = body;
 
   if (!projectId) {
     return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
@@ -17,6 +19,7 @@ export async function POST(
 
   try {
     console.log(`[StitchOrchestrator] Orchestrating stitch for project: ${projectId}`);
+    console.log(`[StitchOrchestrator] Use fade transition: ${useFadeTransition}`);
 
     // 1. Fetch all scenes for the project
     const scenes = await sceneService.getByProjectId(projectId);
@@ -72,6 +75,7 @@ export async function POST(
         scenes: validScenes, // Pass scene metadata for transition selection
         transition: "batch-light-leak",
         duration: 1.5,
+        useFadeTransition, // Pass the fade transition toggle
         globalSettings: {
           lightLeakOverlayUrl: globalLightLeakUrl
         }

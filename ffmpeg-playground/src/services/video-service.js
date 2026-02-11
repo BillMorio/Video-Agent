@@ -178,7 +178,7 @@ export const concatVideos = async (files, transition = 'none', transitionDuratio
   // This ensures that even mixed 720p/1080p or different formats stitch perfectly.
   
   // FORCE NO TRANSITIONS (EXACT CUTS) to eliminate audio bleeding/drift
-  const forceNoTransitions = true;
+  const forceNoTransitions = false;
 
   if (forceNoTransitions || transition === 'none' || files.length < 2) {
     let concatInputs = '';

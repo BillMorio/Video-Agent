@@ -361,14 +361,15 @@ export const agentConcat = async (req, res) => {
 
 export const projectStitch = async (req, res) => {
   console.log('>>> [BACKEND] projectStitch ENTERED');
-  const { sceneUrls, transition, duration, globalSettings } = req.body;
+  const { sceneUrls, transition, duration, globalSettings, useFadeTransition = true } = req.body;
   
   console.log('[API] Project Stitch Request:', { 
     count: sceneUrls?.length,
     url0: sceneUrls?.[0],
     transition,
     scenesCount: req.body.scenes?.length,
-    globalLightLeak: globalSettings?.lightLeakOverlayUrl
+    globalLightLeak: globalSettings?.lightLeakOverlayUrl,
+    useFadeTransition
   });
 
   if (!sceneUrls || sceneUrls.length < 2) {
@@ -386,99 +387,18 @@ export const projectStitch = async (req, res) => {
     console.log(`[API] Successfully downloaded ${downloadedPaths.length} assets.`);
     console.log('[API] Paths:', downloadedPaths);
 
-    // 2. Segmented Assembly Logic
-    console.log('[API] Starting Segmented Assembly...');
-    const finalSegments = [];
-    const scenes = req.body.scenes || []; 
-    
-    // NEW: Batch Light Leak Mode (Single command for the whole sequence)
-    if (transition === 'batch-light-leak') {
-      console.log('[API] Using Batch Light Leak Orchestration Mode');
-      
-      // Determine overlay
-      let overlayPath = null;
-      const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/9255039-hd_1920_1080_25fps.mp4";
+    // 2. Prepare segments for concatenation
+    console.log('[API] Preparing video segments for stitching...');
+    const finalSegments = downloadedPaths.map(p => ({ path: p }));
 
-      if (globalSettings?.lightLeakOverlayUrl) {
-        overlayPath = await downloadFile(globalSettings.lightLeakOverlayUrl);
-      } else {
-        const localFallback = path.join(config.uploadsDir, 'light-leak-overlay.mp4');
-        try {
-          await fsPromises.access(localFallback);
-          overlayPath = localFallback;
-        } catch {
-          overlayPath = await downloadFile(PRESET_LEAK_URL);
-        }
-      }
-
-      console.log(`[API] Final Overlay Local Path: ${overlayPath}`);
-
-      const filesForBatch = downloadedPaths.map(p => ({ path: p }));
-      filesForBatch.push({ path: overlayPath });
-
-      console.log(`[API] Executing Batch Light Leak Transition with ${downloadedPaths.length} clips`);
-      const batchResultPath = await batchLightLeakTransition(filesForBatch, duration || 1.5);
-      
-      finalSegments.push({ path: batchResultPath, isProcessed: true });
-    } else {
-      // Existing individual/segmented logic
-      for (let i = 0; i < downloadedPaths.length; i++) {
-        const currentPath = downloadedPaths[i];
-        const nextPath = downloadedPaths[i + 1];
-        const currentScene = scenes[i];
-
-        // Check if this scene has a light-leak transition and there's a next scene
-        if (currentScene?.transition?.type === 'light-leak' && nextPath) {
-          console.log(`[API] Processing Individual Light Leak Transition for Scene ${i}`);
-          
-          let overlayPath = null;
-          const PRESET_LEAK_URL = "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/9255039-hd_1920_1080_25fps.mp4";
-          
-          try {
-            if (currentScene.transition.assetUrl) {
-              overlayPath = await downloadFile(currentScene.transition.assetUrl);
-            } else if (globalSettings?.lightLeakOverlayUrl) {
-              overlayPath = await downloadFile(globalSettings.lightLeakOverlayUrl);
-            } else {
-              const localFallback = path.join(config.uploadsDir, 'light-leak-overlay.mp4');
-              try {
-                await fsPromises.access(localFallback);
-                overlayPath = localFallback;
-              } catch {
-                overlayPath = await downloadFile(PRESET_LEAK_URL);
-              }
-            }
-            
-            const segmentPath = await lightLeakTransition(
-              [
-                { path: currentPath },
-                { path: nextPath },
-                { path: overlayPath }
-              ],
-              currentScene.transition.duration || 1.1
-            );
-            
-            finalSegments.push({ path: segmentPath, isProcessed: true });
-            i++; // Skip the next scene
-          } catch (err) {
-            console.warn('[API] Light Leak overlay failed, falling back to normal:', err.message);
-            finalSegments.push({ path: currentPath });
-          }
-        } else {
-          finalSegments.push({ path: currentPath });
-        }
-      }
-    }
-
-    // 3. Final Concatenation
-    console.log('[API] Starting final concat of', finalSegments.length, 'segments...');
+    // 3. Concatenate all videos with or without fade transitions
+    const transitionType = useFadeTransition ? 'fade' : 'none';
+    console.log(`[API] Stitching ${finalSegments.length} videos with '${transitionType}' transition...`);
     const outPath = await concatVideos(
       finalSegments, 
-      'none', // Transitions already handled in segments
-      1
+      transitionType,
+      duration || 1.0 // Transition duration
     );
-
-    console.log('[API] Concat complete. Output path:', outPath);
 
     // 4. Upload final master to Supabase
     console.log('[API] Uploading production master to storage...');
