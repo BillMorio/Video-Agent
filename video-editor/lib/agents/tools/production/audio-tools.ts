@@ -35,6 +35,7 @@ export async function trim_audio_segment(args: TrimAudioArgs) {
 
   return {
     success: true,
+    outputUrl: data.publicUrl || `${FFMPEG_SERVER_URL}${data.outputFile}`,
     audioUrl: `${FFMPEG_SERVER_URL}${data.outputFile}`,
     publicUrl: data.publicUrl
   };
@@ -74,6 +75,7 @@ export async function merge_audio_video(args: MergeAudioVideoArgs) {
 
   return {
     success: true,
+    outputUrl: data.publicUrl || `${FFMPEG_SERVER_URL}${data.outputFile}`,
     videoUrl: `${FFMPEG_SERVER_URL}${data.outputFile}`,
     publicUrl: data.publicUrl
   };

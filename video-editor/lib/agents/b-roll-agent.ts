@@ -222,7 +222,7 @@ export class BRollAgent implements BaseAgent {
                 const newState = { 
                   ...scene.agent_state,
                   step: 'audio_trimmed', 
-                  trimmedAudioUrl: toolResult.audioUrl
+                  trimmedAudioUrl: toolResult.outputUrl
                 };
                 const updatedScene = await sceneService.update(scene.id, {
                   agent_state: newState,
@@ -241,10 +241,10 @@ export class BRollAgent implements BaseAgent {
                 const newState = { 
                   ...scene.agent_state,
                   step: 'production_complete', 
-                  finalMergedUrl: toolResult.videoUrl 
+                  finalMergedUrl: toolResult.outputUrl 
                 };
                 const updatedScene = await sceneService.update(scene.id, {
-                  final_video_url: toolResult.videoUrl,
+                  final_video_url: toolResult.outputUrl,
                   agent_state: newState,
                   payload: { ...scene.payload, ...toolResult }
                 });
