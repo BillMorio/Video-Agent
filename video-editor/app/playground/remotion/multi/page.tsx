@@ -12,6 +12,7 @@ import {
   Video,
   MonitorPlay,
   Play,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,16 +23,22 @@ import { Badge } from "@/components/ui/badge";
 const REMOTION_SERVER = "http://localhost:3000";
 
 type VideoClip = {
+  type: "file" | "url";
   file: File | null;
+  url: string;
   duration: number;
 };
 
 export default function MultiVideoPage() {
   const [clips, setClips] = useState<VideoClip[]>([
-    { file: null, duration: 180 },
-    { file: null, duration: 180 },
+    { type: "file", file: null, url: "", duration: 180 },
+    { type: "file", file: null, url: "", duration: 180 },
   ]);
-  const [lightLeakFile, setLightLeakFile] = useState<File | null>(null);
+  const [lightLeak, setLightLeak] = useState({
+    type: "file" as "file" | "url",
+    file: null as File | null,
+    url: "",
+  });
   const [transFrames, setTransFrames] = useState(30);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");
 
@@ -44,7 +51,7 @@ export default function MultiVideoPage() {
   const [lambdaBucket, setLambdaBucket] = useState<string | null>(null);
 
   const addClip = () => {
-    setClips([...clips, { file: null, duration: 180 }]);
+    setClips([...clips, { type: "file", file: null, url: "", duration: 180 }]);
   };
 
   const removeClip = (index: number) => {
@@ -54,9 +61,21 @@ export default function MultiVideoPage() {
     setClips(newClips);
   };
 
+  const updateClipType = (index: number, type: "file" | "url") => {
+    const newClips = [...clips];
+    newClips[index].type = type;
+    setClips(newClips);
+  };
+
   const updateClipFile = (index: number, file: File | null) => {
     const newClips = [...clips];
     newClips[index].file = file;
+    setClips(newClips);
+  };
+
+  const updateClipUrl = (index: number, url: string) => {
+    const newClips = [...clips];
+    newClips[index].url = url;
     setClips(newClips);
   };
 
@@ -67,9 +86,11 @@ export default function MultiVideoPage() {
   };
 
   const handleRender = async () => {
-    const validClips = clips.filter(c => c.file !== null);
-    if (validClips.length < 2 || !lightLeakFile) {
-      setError("Please select at least 2 videos and a light leak asset");
+    const validClips = clips.filter(c => (c.type === 'file' && c.file !== null) || (c.type === 'url' && c.url.trim() !== ""));
+    const isLightLeakValid = (lightLeak.type === 'file' && lightLeak.file !== null) || (lightLeak.type === 'url' && lightLeak.url.trim() !== "");
+
+    if (validClips.length < 2 || !isLightLeakValid) {
+      setError("Please provide at least 2 videos and a light leak asset (as files or URLs)");
       return;
     }
 
@@ -84,11 +105,11 @@ export default function MultiVideoPage() {
       formData.append("compositionId", "MultiLightLeakTransition");
       
       const inputProps = {
-        videos: clips.map((_, i) => ({
-            url: `video_${i}`, // Placeholder fieldname that multer will resolve
-            durationInFrames: clips[i].duration
+        videos: clips.map((clip, i) => ({
+            url: clip.type === 'url' ? clip.url : `video_${i}`,
+            durationInFrames: clip.duration
         })),
-        lightLeakUrl: "lightLeakUrl",
+        lightLeakUrl: lightLeak.type === 'url' ? lightLeak.url : "lightLeakUrl",
         transitionDurationInFrames: transFrames,
         aspectRatio,
       };
@@ -96,11 +117,14 @@ export default function MultiVideoPage() {
       formData.append("inputProps", JSON.stringify(inputProps));
 
       clips.forEach((clip, i) => {
-        if (clip.file) {
+        if (clip.type === 'file' && clip.file) {
             formData.append(`video_${i}`, clip.file);
         }
       });
-      formData.append("lightLeakUrl", lightLeakFile);
+      
+      if (lightLeak.type === 'file' && lightLeak.file) {
+        formData.append("lightLeakUrl", lightLeak.file);
+      }
 
       const endpoint = useLambda ? "/lambda/render" : "/renders";
       const response = await fetch(`${REMOTION_SERVER}${endpoint}`, {
@@ -243,22 +267,57 @@ export default function MultiVideoPage() {
                       )}
                     </div>
                     
-                    <div className="flex gap-2">
-                      <Input 
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => updateClipFile(index, e.target.files?.[0] || null)}
-                        className="text-[11px] font-bold py-5 bg-white border-2 cursor-pointer flex-1"
-                      />
+                    <div className="flex justify-between items-center bg-white/50 p-1 rounded-lg border border-neutral-100">
+                      <div className="flex gap-1">
+                        <Button
+                          variant={clip.type === "file" ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => updateClipType(index, "file")}
+                          className="h-7 text-[9px] font-black uppercase px-3"
+                        >
+                          Upload
+                        </Button>
+                        <Button
+                          variant={clip.type === "url" ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => updateClipType(index, "url")}
+                          className="h-7 text-[9px] font-black uppercase px-3 gap-1.5"
+                        >
+                          <Link2 className="w-3 h-3" />
+                          URL
+                        </Button>
+                      </div>
                       <div className="relative">
                         <Input 
+                          key={`duration-${index}`}
                           type="number"
-                          value={clip.duration}
-                          onChange={(e) => updateClipDuration(index, parseInt(e.target.value))}
-                          className="w-20 text-center text-[10px] font-bold py-5 bg-white border-2 pr-6"
+                          value={clip.duration || 0}
+                          onChange={(e) => updateClipDuration(index, parseInt(e.target.value) || 0)}
+                          className="w-16 text-center text-[10px] font-bold py-3 bg-white border-none h-7 pr-4"
                         />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-bold text-neutral-400">f</span>
+                        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[8px] font-bold text-neutral-400">f</span>
                       </div>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      {clip.type === "file" ? (
+                        <Input 
+                          key={`file-input-${index}`}
+                          type="file"
+                          accept="video/*"
+                          onChange={(e) => updateClipFile(index, e.target.files?.[0] || null)}
+                          className="text-[11px] font-bold py-5 bg-white border-2 cursor-pointer flex-1"
+                        />
+                      ) : (
+                        <Input 
+                          key={`url-input-${index}`}
+                          type="text"
+                          placeholder="https://example.com/video.mp4"
+                          value={clip.url || ""}
+                          onChange={(e) => updateClipUrl(index, e.target.value)}
+                          className="text-[11px] font-bold py-5 bg-white border-2 flex-1"
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -340,21 +399,54 @@ export default function MultiVideoPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Light Leak Asset</Label>
-                    <Input 
-                      type="file"
-                      accept="video/*"
-                      onChange={(e) => setLightLeakFile(e.target.files?.[0] || null)}
-                      className="text-[11px] font-bold py-5 bg-neutral-50/50 border-2 cursor-pointer"
-                    />
+                    <div className="flex justify-between items-center bg-neutral-50/50 p-1 rounded-lg border border-neutral-100">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pl-2">Light Leak Asset</Label>
+                      <div className="flex gap-1">
+                        <Button
+                          variant={lightLeak.type === "file" ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => setLightLeak({ ...lightLeak, type: "file" })}
+                          className="h-7 text-[9px] font-black uppercase px-3"
+                        >
+                          Upload
+                        </Button>
+                        <Button
+                          variant={lightLeak.type === "url" ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => setLightLeak({ ...lightLeak, type: "url" })}
+                          className="h-7 text-[9px] font-black uppercase px-3 gap-1.5"
+                        >
+                          <Link2 className="w-3 h-3" />
+                          URL
+                        </Button>
+                      </div>
+                    </div>
+                    {lightLeak.type === "file" ? (
+                      <Input 
+                        key="lightleak-file"
+                        type="file"
+                        accept="video/*"
+                        onChange={(e) => setLightLeak({ ...lightLeak, file: e.target.files?.[0] || null })}
+                        className="text-[11px] font-bold py-5 bg-neutral-50/50 border-2 cursor-pointer"
+                      />
+                    ) : (
+                      <Input 
+                        key="lightleak-url"
+                        type="text"
+                        placeholder="https://example.com/lightleak.mp4"
+                        value={lightLeak.url || ""}
+                        onChange={(e) => setLightLeak({ ...lightLeak, url: e.target.value })}
+                        className="text-[11px] font-bold py-5 bg-neutral-50/50 border-2"
+                      />
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Transition Duration</Label>
                     <Input 
                       type="number" 
-                      value={transFrames} 
-                      onChange={(e) => setTransFrames(parseInt(e.target.value))}
+                      value={transFrames || 0} 
+                      onChange={(e) => setTransFrames(parseInt(e.target.value) || 0)}
                       className="text-[11px] font-bold py-5 bg-neutral-50/50 border-2"
                     />
                   </div>
