@@ -18,7 +18,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Layers,
-  Download
+  Download,
+  Link2,
+  RefreshCw
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { NavSidebar } from "@/components/panels/nav-sidebar";
@@ -70,7 +72,59 @@ export default function DynamicStudioPage() {
   const [activeView, setActiveView] = useState("studio");
   const [useFadeTransition, setUseFadeTransition] = useState(true);
   const [useLightLeak, setUseLightLeak] = useState(false);
+  const [useCloudRender, setUseCloudRender] = useState(false);
+  const [cloudProgress, setCloudProgress] = useState<number>(0);
+  const [customLightLeakUrl, setCustomLightLeakUrl] = useState("");
+  const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [isSyncingDurations, setIsSyncingDurations] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  const getVideoDuration = async (url: string): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.crossOrigin = "anonymous"; 
+      video.src = url;
+      video.onloadedmetadata = () => resolve(video.duration);
+      video.onerror = () => reject("Failed to load video metadata");
+      setTimeout(() => reject("Timeout fetching metadata"), 8000);
+    });
+  };
+
+  const handleSyncDurations = async () => {
+    if (!dbScenes || isSyncingDurations) return;
+    setIsSyncingDurations(true);
+    await addLog("System: Initializing asset metadata sync... Probing durations for all scenes.", 'system');
+
+    try {
+      let syncCount = 0;
+      for (const scene of [...dbScenes].sort((a, b) => a.index - b.index)) {
+        const url = scene.final_video_url || scene.asset_url;
+        if (!url) continue;
+
+        try {
+          const duration = await getVideoDuration(url);
+          if (duration > 0) {
+            await updateSceneMutation.mutateAsync({
+              id: scene.id,
+              updates: { duration }
+            });
+            syncCount++;
+            await addLog(`System: Synced Scene ${scene.index + 1} -> ${duration.toFixed(2)}s`, 'system');
+          }
+        } catch (err) {
+          console.error(`Failed to sync duration for scene ${scene.id}:`, err);
+          await addLog(`Error: Could not sync Scene ${scene.index + 1}.`, 'error');
+        }
+      }
+      await addLog(`✅ System: Sync complete. ${syncCount} scenes updated with precise durations.`, 'success');
+    } catch (err) {
+      console.error("Sync failed:", err);
+      await addLog("Error: Duration synchronization failed.", 'error');
+    } finally {
+      setIsSyncingDurations(false);
+    }
+  };
 
   const handleNavClick = (id: string) => {
     if (id === "settings") {
@@ -181,13 +235,20 @@ export default function DynamicStudioPage() {
     if (isStitching) return;
     
     setIsStitching(true);
-    await addLog("Production Orchestrator: Initializing final high-fidelity stitching sequence...", 'orchestrator');
+    setCloudProgress(0);
+    setEstimatedCost(null);
+    await addLog(`Production Orchestrator: Initializing final high-fidelity stitching sequence (${useCloudRender ? 'Cloud Lambda' : 'Local FFmpeg'})...`, 'orchestrator');
 
     try {
       const response = await fetch(`/api/projects/${projectId}/stitch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ useFadeTransition, useLightLeak })
+        body: JSON.stringify({ 
+          useFadeTransition, 
+          useLightLeak,
+          useCloudRender,
+          lightLeakUrl: customLightLeakUrl
+        })
       });
 
       if (!response.ok) {
@@ -196,16 +257,50 @@ export default function DynamicStudioPage() {
       }
 
       const data = await response.json();
-      setMasterVideoUrl(data.publicUrl);
       
-      await addLog("✅ Production Orchestrator: Master production assembled successfully! Final render is ready for review.", 'success');
+      if (data.isCloudRender) {
+        await addLog("☁️ Production Orchestrator: Cloud render dispatched to AWS Lambda. Monitoring progress...", 'orchestrator');
+        if (data.details?.estimatedCost) {
+            setEstimatedCost(data.details.estimatedCost);
+        }
+        pollCloudStitchStatus(data.renderId, data.bucketName);
+      } else {
+        setMasterVideoUrl(data.publicUrl);
+        await addLog("✅ Production Orchestrator: Master production assembled successfully! Final render is ready for review.", 'success');
+        setIsStitching(false);
+      }
 
     } catch (err: any) {
       console.error("Stitching failed:", err);
       await addLog(`❌ Error: Final assembly failed - ${err.message}`, 'error');
-    } finally {
       setIsStitching(false);
     }
+  };
+
+  const pollCloudStitchStatus = async (renderId: string, bucketName: string) => {
+    const REMOTE_RENDER_SERVER = "http://localhost:3000";
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch(`${REMOTE_RENDER_SERVER}/lambda/status/${renderId}?bucketName=${bucketName}`);
+            const data = await res.json();
+
+            if (data.status === "completed") {
+                setMasterVideoUrl(data.videoUrl);
+                setIsStitching(false);
+                setCloudProgress(100);
+                await addLog("✅ Production Orchestrator: Cloud assembly complete! Master video is available.", 'success');
+                clearInterval(interval);
+            } else if (data.status === "failed") {
+                await addLog(`❌ Error: Cloud assembly failed - ${data.error}`, 'error');
+                setIsStitching(false);
+                clearInterval(interval);
+            } else if (data.status === "in-progress") {
+                setCloudProgress(Math.round(data.progress * 100));
+            }
+        } catch (err) {
+            console.error("Cloud Polling error:", err);
+        }
+    }, 2000);
   };
 
   const handleReset = async () => {
@@ -326,60 +421,123 @@ export default function DynamicStudioPage() {
             </button>
 
             {agentMemory?.workflow_status === 'completed' && (
-              <>
-                <label 
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-muted/20 border border-border/40 cursor-pointer hover:bg-muted/30 transition-all"
-                  title="Apply cinematic light leak transitions between clips"
-                >
-                  <input
-                    type="checkbox"
-                    checked={useLightLeak}
-                    onChange={(e) => {
-                      setUseLightLeak(e.target.checked);
-                      if (e.target.checked) setUseFadeTransition(false);
-                    }}
-                    className="w-4 h-4 rounded border-border/60 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
-                  />
-                  <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-foreground/70">
-                    Light Leak
-                  </span>
-                </label>
-
-                <label 
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-muted/20 border border-border/40 cursor-pointer hover:bg-muted/30 transition-all"
-                  title="Enable smooth fade transitions between video clips"
-                >
-                  <input
-                    type="checkbox"
-                    checked={useFadeTransition}
-                    onChange={(e) => {
-                      setUseFadeTransition(e.target.checked);
-                      if (e.target.checked) setUseLightLeak(false);
-                    }}
-                    className="w-4 h-4 rounded border-border/60 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
-                  />
-                  <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-foreground/70">
-                    Fade Transitions
-                  </span>
-                </label>
-
-                <button 
-                  onClick={masterVideoUrl ? () => window.open(masterVideoUrl, '_blank') : handleStitch}
-                  disabled={isStitching}
+              <div className="flex items-center gap-3">
+                {/* Sync Assets Button */}
+                <button
+                  onClick={handleSyncDurations}
+                  disabled={isSyncingDurations || isStitching}
                   className={cn(
-                      "flex items-center gap-2.5 px-5 py-2.5 rounded-xl technical-label text-[10px] font-bold uppercase tracking-[0.15em] transition-all",
-                      isStitching
-                        ? "bg-amber-500/10 text-amber-500 border border-amber-500/30 animate-pulse"
-                        : (masterVideoUrl 
-                            ? "bg-green-600 text-white hover:bg-green-500 shadow-glow shadow-green-500/20 active:scale-95" 
-                            : "bg-amber-500 text-white hover:bg-amber-400 shadow-glow shadow-amber-500/20 active:scale-95")
+                    "flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 cursor-pointer hover:bg-indigo-500/20 transition-all",
+                    isSyncingDurations && "animate-pulse"
                   )}
-              >
-                  {isStitching ? <Clock className="w-4 h-4 animate-spin" /> : (masterVideoUrl ? <Download className="w-4 h-4" /> : <Layers className="w-4 h-4" />)}
-                  {isStitching ? "ASSEMBLING..." : (masterVideoUrl ? "VIEW MASTER" : "EXPORT MASTER")}
-              </button>
-              </>
+                  title="Sync exact asset durations from metadata"
+                >
+                  <RefreshCw className={cn("w-3 h-3 text-indigo-500", isSyncingDurations && "animate-spin")} />
+                  <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-indigo-700/80">
+                    {isSyncingDurations ? "Syncing..." : "Sync Assets"}
+                  </span>
+                </button>
 
+                <label 
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500/10 border border-orange-500/30 cursor-pointer hover:bg-orange-500/20 transition-all"
+                  title="Render using AWS Lambda for high-fidelity transitions"
+                >
+                  <input
+                    type="checkbox"
+                    checked={useCloudRender}
+                    onChange={(e) => setUseCloudRender(e.target.checked)}
+                    className="w-4 h-4 rounded border-orange-500/60 text-orange-500 focus:ring-orange-500 focus:ring-offset-0 cursor-pointer"
+                  />
+                  <Zap className="w-3 h-3 text-orange-500" />
+                  <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-orange-700/80">
+                    Cloud Render
+                  </span>
+                </label>
+
+                {useCloudRender && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-orange-500/5 border border-orange-500/20 animate-in fade-in slide-in-from-right-2">
+                    <Link2 className="w-3 h-3 text-orange-500/50" />
+                    <input
+                      type="text"
+                      placeholder="Light Leak URL (Optional)"
+                      value={customLightLeakUrl}
+                      onChange={(e) => setCustomLightLeakUrl(e.target.value)}
+                      className="bg-transparent border-none focus:ring-0 text-[10px] technical-label font-bold text-orange-950/70 placeholder:text-orange-950/30 w-48"
+                    />
+                  </div>
+                )}
+
+                {!useCloudRender && (
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-muted/20 border border-border/40 cursor-pointer hover:bg-muted/30 transition-all">
+                      <input
+                        type="checkbox"
+                        checked={useLightLeak}
+                        onChange={(e) => {
+                          setUseLightLeak(e.target.checked);
+                          if (e.target.checked) setUseFadeTransition(false);
+                        }}
+                        className="w-4 h-4 rounded border-border/60 text-primary focus:ring-primary"
+                      />
+                      <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-foreground/70">Light Leak</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-muted/20 border border-border/40 cursor-pointer hover:bg-muted/30 transition-all">
+                      <input
+                        type="checkbox"
+                        checked={useFadeTransition}
+                        onChange={(e) => {
+                          setUseFadeTransition(e.target.checked);
+                          if (e.target.checked) setUseLightLeak(false);
+                        }}
+                        className="w-4 h-4 rounded border-border/60 text-primary focus:ring-primary"
+                      />
+                      <span className="text-[10px] technical-label font-bold uppercase tracking-[0.15em] text-foreground/70">Fade</span>
+                    </label>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  {estimatedCost !== null && !isStitching && (
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 animate-in zoom-in-95">
+                      <Zap className="w-3 h-3 text-emerald-500" />
+                      <span className="text-[9px] technical-label font-black text-emerald-600 uppercase tracking-wider">
+                        EST. ${estimatedCost.toFixed(6)}
+                      </span>
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={masterVideoUrl ? () => window.open(masterVideoUrl, '_blank') : handleStitch}
+                    disabled={isStitching || isSyncingDurations}
+                    className={cn(
+                      "flex items-center gap-2.5 px-6 py-2.5 rounded-xl technical-label text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-glow-sm",
+                      isStitching 
+                        ? "bg-amber-500/10 text-amber-600 border border-amber-500/30" 
+                        : (masterVideoUrl 
+                            ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-glow"
+                            : "bg-foreground text-background hover:bg-foreground/90 active:scale-95")
+                    )}
+                  >
+                    {isStitching ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>{cloudProgress > 0 ? `ASSEMBLING ${cloudProgress}%` : "ASSEMBLING..."}</span>
+                      </>
+                    ) : masterVideoUrl ? (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>VIEW MASTER</span>
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="w-4 h-4" />
+                        <span>EXPORT MASTER</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </header>
@@ -409,18 +567,12 @@ export default function DynamicStudioPage() {
                     <Badge variant="outline" className="text-[9px] technical-label font-bold py-1.5 px-4 rounded-lg bg-green-500/5 text-green-600 border-green-500/10">
                       {agentMemory?.completed_count || 0} READY
                     </Badge>
-                    <Badge variant="outline" className="text-[9px] technical-label font-bold py-1.5 px-4 rounded-lg bg-amber-500/5 text-amber-600 border-amber-500/10">
-                      {mappedScenes.length - (agentMemory?.completed_count || 0)} PENDING
-                    </Badge>
                   </div>
                 </div>
 
-                {/* Fluid Scene Grid: Auto-fills columns based on available width, preventing squeezing */}
                 <div 
                   className="grid gap-8 pb-32 px-1 max-w-7xl"
-                  style={{ 
-                      gridTemplateColumns: `repeat(auto-fill, minmax(340px, 1fr))` 
-                  }}
+                  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(340px, 1fr))` }}
                 >
                   {mappedScenes.map((scene, i) => (
                     <SceneCard 
@@ -448,7 +600,6 @@ export default function DynamicStudioPage() {
             </div>
           )}
 
-          {/* Activity Log - Resizable width, neutral background for professional feel */}
           <div 
             onMouseDown={startResizing}
             className={cn(
@@ -485,15 +636,8 @@ export default function DynamicStudioPage() {
                     const cleanMsg = log.msg.includes(':') ? log.msg.split(':').slice(1).join(':').trim() : log.msg;
                     
                     return (
-                        <div 
-                          key={i} 
-                          className={cn(
-                              "flex items-start gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500",
-                              !isLast && "opacity-60"
-                          )}
-                        >
-                            {/* Standard Professional Indicator */}
-                            <div className="mt-1.5 shrink-0 flex items-center justify-center">
+                        <div key={i} className={cn("flex items-start gap-4 animate-in fade-in slide-in-from-bottom-2", !isLast && "opacity-60")}>
+                            <div className="mt-1.5 shrink-0">
                                 <div className={cn(
                                     "w-2 h-2 rounded-full",
                                     log.type === 'orchestrator' ? "bg-primary" : 
@@ -501,23 +645,12 @@ export default function DynamicStudioPage() {
                                     log.type === 'success' ? "bg-green-500" : "bg-muted-foreground/30"
                                 )} />
                             </div>
-
                             <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                    <span className={cn(
-                                        "text-[9px] technical-label font-bold uppercase tracking-widest",
-                                        log.type === 'orchestrator' ? "text-primary/90" : 
-                                        log.type === 'agent' ? "text-amber-500/90" : 
-                                        "text-muted-foreground/50"
-                                    )}>
-                                        {agentName || log.type}
-                                    </span>
+                                    <span className="text-[9px] technical-label font-bold uppercase tracking-widest opacity-50">{agentName || log.type}</span>
                                     <div className="h-px flex-1 bg-border/20" />
                                 </div>
-                                
-                                <p className="text-[11px] font-medium leading-relaxed text-foreground/80 break-words">
-                                    {cleanMsg}
-                                </p>
+                                <p className="text-[11px] font-medium leading-relaxed text-foreground/80 break-words">{cleanMsg}</p>
                             </div>
                         </div>
                     );
@@ -530,7 +663,7 @@ export default function DynamicStudioPage() {
                     <span className="text-[7px] technical-label opacity-30 uppercase tracking-[0.4em] font-black">EVENT_ID</span>
                     <div className="flex items-center gap-1.5">
                       <div className="w-1 h-1 rounded-full bg-primary/40 shrink-0" />
-                      <span className="text-[9px] technical-label font-bold text-primary/70 truncate max-w-[140px] leading-none uppercase tracking-tighter">
+                      <span className="text-[9px] technical-label font-bold text-primary/70 truncate max-w-[140px] lowercase tracking-tighter uppercase">
                           {agentMemory?.active_agents && agentMemory.active_agents.length > 0 ? agentMemory.active_agents[0] : "ENGINE STANDBY"}
                       </span>
                     </div>
@@ -544,7 +677,6 @@ export default function DynamicStudioPage() {
         </div>
       </div>
 
-      {/* Modal Integration (DB-Driven) */}
       {selectedSceneIndex !== null && dbScenes && (
           <SceneModal 
             isOpen={isModalOpen}

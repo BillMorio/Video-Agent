@@ -244,6 +244,7 @@ export function SceneCard({
               <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 text-[9px] technical-label font-bold text-white shadow-sm">
                 <Scissors className="w-3.5 h-3.5 text-blue-400" /> 
                 {(scene.duration || 0).toFixed(1)}s
+                <span className="opacity-40 text-[7px] font-black ml-0.5">({Math.round((scene.duration || 0) * 30)}F)</span>
               </div>
               <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 text-[9px] technical-label font-bold text-white shadow-sm">
                 <Clock className="w-3.5 h-3.5 text-emerald-400" /> 

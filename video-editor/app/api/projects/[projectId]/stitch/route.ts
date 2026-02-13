@@ -4,6 +4,7 @@ import { memoryService } from "@/lib/services/api/memory-service";
 import { settingsService } from "@/lib/services/api/settings-service";
 
 const FFMPEG_SERVER = "http://127.0.0.1:3333";
+const REMOTE_RENDER_SERVER = "http://localhost:3000";
 
 export async function POST(
   req: NextRequest,
@@ -11,7 +12,12 @@ export async function POST(
 ) {
   const { projectId } = await params;
   const body = await req.json();
-  const { useFadeTransition = true, useLightLeak = false } = body;
+  const { 
+    useFadeTransition = true, 
+    useLightLeak = false,
+    useCloudRender = false,
+    lightLeakUrl = null,
+  } = body;
 
   if (!projectId) {
     return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
@@ -34,13 +40,13 @@ export async function POST(
       settingsService.getLightLeakOverlayUrl()
     ]);
     
-    // Priority: Project Memory > Global Settings
-    const globalLightLeakUrl = memory?.metadata?.lightLeakOverlayUrl || globalLeakUrl;
+    // Priority: Body Parameter > Project Memory > Global Settings
+    const finalLightLeakUrl = lightLeakUrl || memory?.metadata?.lightLeakOverlayUrl || globalLeakUrl;
 
     console.log(`[StitchOrchestrator] Light leak resolution:`);
     console.log(`  - Project Memory Override: ${memory?.metadata?.lightLeakOverlayUrl || 'None'}`);
     console.log(`  - Global Setting: ${globalLeakUrl || 'None'}`);
-    console.log(`  - Final Resolved URL: ${globalLightLeakUrl || 'None'}`);
+    console.log(`  - Final Resolved URL: ${finalLightLeakUrl || 'None'}`);
     console.log(`[StitchOrchestrator] Found ${scenes.length} total scenes.`);
     
     // 2. Filter scenes that have some form of video asset (prefer final_video_url, fallback to asset_url)
@@ -68,7 +74,47 @@ export async function POST(
     console.log(`[StitchOrchestrator] Use fade transition: ${useFadeTransition}`);
     console.log(`[StitchOrchestrator] Use light leak transition: ${useLightLeak}`);
     
-    // 4. Trigger FFmpeg backend stitching
+    // 4. Handle Cloud Render if requested
+    if (useCloudRender) {
+      console.log(`[StitchOrchestrator] Triggering Remotion Lambda build with ${sceneUrls.length} assets...`);
+      
+      // Calculate frames based on 30fps
+      const inputProps = {
+        scenes: validScenes.map(s => ({
+          url: s.final_video_url || s.asset_url,
+          durationInFrames: Math.round((s.duration || (s.end_time - s.start_time)) * 30)
+        })),
+        lightLeakUrl: finalLightLeakUrl,
+        transitionDurationInFrames: 30,
+        aspectRatio: memory?.metadata?.aspectRatio || "16:9"
+      };
+
+      const response = await fetch(`${REMOTE_RENDER_SERVER}/lambda/render`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          compositionId: "CloudSceneAssembly",
+          inputProps 
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Remotion Lambda rendering failed to start");
+      }
+
+      const result = await response.json();
+      return NextResponse.json({
+        success: true,
+        message: "Remotion Lambda render started!",
+        isCloudRender: true,
+        renderId: result.renderId,
+        bucketName: result.bucketName,
+        details: result
+      });
+    }
+
+    // 5. Trigger FFmpeg backend stitching (Legacy/Local)
     console.log(`[StitchOrchestrator] Triggering FFmpeg build with ${sceneUrls.length} assets...`);
     const response = await fetch(`${FFMPEG_SERVER}/api/project/stitch`, {
       method: "POST",
@@ -81,7 +127,7 @@ export async function POST(
         useFadeTransition, // Pass the fade transition toggle
         useLightLeak, // Pass the light leak transition toggle
         globalSettings: {
-          lightLeakOverlayUrl: globalLightLeakUrl
+          lightLeakOverlayUrl: finalLightLeakUrl
         }
       }),
       signal: AbortSignal.timeout(600000) // 10 minutes timeout
