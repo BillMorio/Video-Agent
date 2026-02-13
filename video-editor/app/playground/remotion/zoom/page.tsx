@@ -7,10 +7,7 @@ import {
   Settings2, 
   Zap, 
   Loader2, 
-  Plus,
-  Trash2,
   Video,
-  MonitorPlay,
   Play,
   Link2,
 } from "lucide-react";
@@ -29,53 +26,52 @@ type VideoClip = {
   duration: number;
 };
 
-export default function MultiVideoPage() {
-  const [v1, setV1] = useState<VideoClip>({ type: "url", file: null, url: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/Avatar%20IV%20Video.mp4", duration: 180 });
-  const [v2, setV2] = useState<VideoClip>({ type: "url", file: null, url: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/Avatar%20IV%20Video.mp4", duration: 180 });
-  
-  const [lightLeak, setLightLeak] = useState({
-    type: "url" as "file" | "url",
-    file: null as File | null,
-    url: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/merged-1770838789313.mp4",
+export default function ZoomTransitionPage() {
+  const [v1, setV1] = useState<VideoClip>({ 
+    type: "url", 
+    file: null, 
+    url: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/Avatar%20IV%20Video.mp4", 
+    duration: 180 
+  });
+  const [v2, setV2] = useState<VideoClip>({ 
+    type: "url", 
+    file: null, 
+    url: "https://uywpbubzkaotglmauagr.supabase.co/storage/v1/object/public/projects/Avatar%20IV%20Video.mp4", 
+    duration: 180 
   });
   
   const [transFrames, setTransFrames] = useState(30);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("9:16");
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
-  const [useLambda, setUseLambda] = useState(true);
-  const [lambdaBucket, setLambdaBucket] = useState<string | null>(null);
+  const [useLambda, setUseLambda] = useState(true); // Default to TRUE
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
 
   const handleRender = async () => {
     const isV1Valid = (v1.type === 'file' && v1.file !== null) || (v1.type === 'url' && v1.url.trim() !== "");
     const isV2Valid = (v2.type === 'file' && v2.file !== null) || (v2.type === 'url' && v2.url.trim() !== "");
-    const isLightLeakValid = (lightLeak.type === 'file' && lightLeak.file !== null) || (lightLeak.type === 'url' && lightLeak.url.trim() !== "");
 
-    if (!isV1Valid || !isV2Valid || !isLightLeakValid) {
-      setError("Please provide both videos and a light leak asset");
+    if (!isV1Valid || !isV2Valid) {
+      setError("Please provide both videos");
       return;
     }
 
     setIsProcessing(true);
     setError(null);
     setOutputUrl(null);
-    setJobId(null);
     setProgress(0);
     setEstimatedCost(null);
 
     try {
       const formData = new FormData();
-      formData.append("compositionId", "LightLeakTransition");
+      formData.append("compositionId", "ZoomTransition");
       
       const inputProps = {
         video1Url: v1.type === 'url' ? v1.url : "video1Url",
         video2Url: v2.type === 'url' ? v2.url : "video2Url",
-        lightLeakUrl: lightLeak.type === 'url' ? lightLeak.url : "lightLeakUrl",
         v1DurationInFrames: v1.duration,
         v2DurationInFrames: v2.duration,
         transitionDurationInFrames: transFrames,
@@ -86,7 +82,6 @@ export default function MultiVideoPage() {
 
       if (v1.type === 'file' && v1.file) formData.append("video1Url", v1.file);
       if (v2.type === 'file' && v2.file) formData.append("video2Url", v2.file);
-      if (lightLeak.type === 'file' && lightLeak.file) formData.append("lightLeakUrl", lightLeak.file);
 
       const endpoint = useLambda ? "/lambda/render" : "/renders";
       const response = await fetch(`${REMOTION_SERVER}${endpoint}`, {
@@ -95,15 +90,12 @@ export default function MultiVideoPage() {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Failed to start render");
+      if (!response.ok) throw new Error(data.message || data.error || "Failed to start render");
       
       if (useLambda) {
-        setJobId(data.renderId);
-        setLambdaBucket(data.bucketName);
         setEstimatedCost(data.estimatedCost);
         pollLambdaStatus(data.renderId, data.bucketName);
       } else {
-        setJobId(data.jobId);
         pollStatus(data.jobId);
       }
     } catch (err) {
@@ -241,8 +233,8 @@ export default function MultiVideoPage() {
               Experiments
             </Link>
             <div className="space-y-1">
-              <h1 className="text-3xl font-black tracking-tighter uppercase italic leading-none text-indigo-600">Light Leak Transition</h1>
-              <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest font-mono">2-Clip Cinematic Assembly</p>
+              <h1 className="text-3xl font-black tracking-tighter uppercase italic leading-none text-indigo-600">Zoom Transition</h1>
+              <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest font-mono">Scaling overlap assembly</p>
             </div>
           </div>
 
@@ -260,7 +252,7 @@ export default function MultiVideoPage() {
               ) : (
                 <>
                   <Zap className="w-4 h-4 mr-3" />
-                  Render Transition
+                  Render Zoom Transition
                 </>
               )}
             </Button>
@@ -273,7 +265,7 @@ export default function MultiVideoPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-5 space-y-6">
+          <div className="lg:col-span-4 space-y-6">
             <Card className="border-neutral-200 shadow-sm rounded-2xl overflow-hidden bg-white">
               <CardHeader className="p-6 border-b border-neutral-50 bg-neutral-50/30 flex flex-row items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -296,7 +288,7 @@ export default function MultiVideoPage() {
                     <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-600">
                       <Settings2 className="w-4 h-4" />
                     </div>
-                    <CardTitle className="text-sm font-black uppercase tracking-widest italic">Global Settings</CardTitle>
+                    <CardTitle className="text-sm font-black uppercase tracking-widest italic text-neutral-800">Global Settings</CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
                      <div className={`w-2 h-2 rounded-full animate-pulse ${useLambda ? 'bg-orange-500' : 'bg-green-500'}`} />
@@ -349,49 +341,6 @@ export default function MultiVideoPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="flex justify-between items-center bg-neutral-50/50 p-1 rounded-lg border border-neutral-100">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pl-2">Light Leak Asset</Label>
-                      <div className="flex gap-1">
-                        <Button
-                          variant={lightLeak.type === "file" ? "default" : "ghost"}
-                          size="sm"
-                          onClick={() => setLightLeak({ ...lightLeak, type: "file" })}
-                          className="h-7 text-[9px] font-black uppercase px-3"
-                        >
-                          Upload
-                        </Button>
-                        <Button
-                          variant={lightLeak.type === "url" ? "default" : "ghost"}
-                          size="sm"
-                          onClick={() => setLightLeak({ ...lightLeak, type: "url" })}
-                          className="h-7 text-[9px] font-black uppercase px-3 gap-1.5"
-                        >
-                          <Link2 className="w-3 h-3" />
-                          URL
-                        </Button>
-                      </div>
-                    </div>
-                    {lightLeak.type === "file" ? (
-                      <Input 
-                        key="lightleak-file"
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => setLightLeak({ ...lightLeak, file: e.target.files?.[0] || null })}
-                        className="text-[11px] font-bold py-5 bg-neutral-50/50 border-2 cursor-pointer"
-                      />
-                    ) : (
-                      <Input 
-                        key="lightleak-url"
-                        type="text"
-                        placeholder="https://example.com/lightleak.mp4"
-                        value={lightLeak.url || ""}
-                        onChange={(e) => setLightLeak({ ...lightLeak, url: e.target.value })}
-                        className="text-[11px] font-bold py-5 bg-neutral-50/50 border-2"
-                      />
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Transition (Frames)</Label>
                     <Input 
                       type="number" 
@@ -407,11 +356,12 @@ export default function MultiVideoPage() {
             {error && (
               <div className="p-4 bg-red-50 border-2 border-red-100 rounded-2xl animate-in shake duration-500">
                 <p className="text-[11px] font-black text-red-600 uppercase tracking-tight">{error}</p>
+                <p className="text-[9px] mt-2 text-red-400 font-bold uppercase">Tip: Try Local Mode if Lambda isn't updated</p>
               </div>
             )}
           </div>
 
-          <div className="lg:col-span-7">
+          <div className="lg:col-span-8">
             <Card className="border-neutral-200 shadow-xl rounded-3xl overflow-hidden bg-neutral-900 aspect-video lg:aspect-[4/3] flex flex-col items-center justify-center relative">
               {outputUrl ? (
                 <video 
