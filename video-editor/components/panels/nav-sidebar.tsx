@@ -3,16 +3,20 @@
 import { useState } from "react";
 import { 
   LayoutGrid, 
-  Settings
+  Settings,
+  FileVideo
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface NavItem {
   id: string;
   label: string;
   sub: string;
   icon: React.ReactNode;
+  href: string;
 }
 
 interface NavSidebarProps {
@@ -22,10 +26,16 @@ interface NavSidebarProps {
 }
 
 export function NavSidebar({ activeItem = "studio", isCollapsed = false, onItemClick }: NavSidebarProps) {
+  const pathname = usePathname();
+  
   const navItems: NavItem[] = [
-    { id: "studio", label: "Studio", sub: "Primary Workflow", icon: <LayoutGrid className="w-4 h-4" /> },
-    { id: "settings", label: "Settings", sub: "Configuration", icon: <Settings className="w-4 h-4" /> },
+    { id: "library", label: "Library", sub: "Production Fleet", icon: <LayoutGrid className="w-4 h-4" />, href: "/playground/dashboard" },
+    { id: "studio", label: "Studio", sub: "Primary Workflow", icon: <FileVideo className="w-4 h-4" />, href: "/playground/start" },
+    { id: "settings", label: "Settings", sub: "Configuration", icon: <Settings className="w-4 h-4" />, href: "#" },
   ];
+
+  // Derive active item from pathname if not provided
+  const currentActive = activeItem || (pathname?.includes('dashboard') ? 'library' : 'studio');
 
   return (
     <aside 
@@ -56,12 +66,13 @@ export function NavSidebar({ activeItem = "studio", isCollapsed = false, onItemC
       {/* Navigation Items - Compacted py-2, smaller icons and text */}
       <div className="flex-1 py-8 px-3 space-y-2">
         {navItems.map((item) => (
-          <button
+          <Link
             key={item.id}
+            href={item.href}
             onClick={() => onItemClick?.(item.id)}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 group relative",
-              activeItem === item.id
+              currentActive === item.id
                 ? "bg-primary/5 text-primary border border-primary/10 shadow-glow-sm"
                 : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/20",
               isCollapsed && "justify-center px-0"
@@ -69,7 +80,7 @@ export function NavSidebar({ activeItem = "studio", isCollapsed = false, onItemC
           >
             <div className={cn(
                "transition-transform duration-300",
-               activeItem === item.id ? "text-primary scale-105" : "text-muted-foreground/30 group-hover:scale-110"
+               currentActive === item.id ? "text-primary scale-105" : "text-muted-foreground/30 group-hover:scale-110"
             )}>
               {item.icon}
             </div>
@@ -80,10 +91,10 @@ export function NavSidebar({ activeItem = "studio", isCollapsed = false, onItemC
               </div>
             )}
 
-            {activeItem === item.id && (
+            {currentActive === item.id && (
               <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-r-full shadow-glow" />
             )}
-          </button>
+          </Link>
         ))}
       </div>
 

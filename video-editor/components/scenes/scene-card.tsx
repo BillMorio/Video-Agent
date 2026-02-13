@@ -54,8 +54,12 @@ export function SceneCard({
   onDoubleClick
 }: SceneCardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const visualType = scene.visual_type || scene.visualType || "b-roll";
+
+  // Logical check for video activation
+  const shouldActivateVideo = (isHovered || isSelected) && !!scene.final_video_url;
 
   const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -149,6 +153,11 @@ export function SceneCard({
       )}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        setIsPlaying(false);
+      }}
     >
       {/* Selection Glow / Accent - Highly subtle top line */}
       {isSelected && (
@@ -157,15 +166,27 @@ export function SceneCard({
 
       <div className="aspect-video bg-muted/5 relative flex items-center justify-center overflow-hidden rounded-t-2xl">
         {/* Media Layer (Video or Thumbnail) */}
-        {scene.final_video_url ? (
+        
+        {/* Base Layer: Always show Thumbnail/Placeholder if available */}
+        {(scene.thumbnail_url || (visualType === 'image' && scene.asset_url)) && (
+          <div 
+            className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105"
+            style={{ backgroundImage: `url(${scene.thumbnail_url || scene.asset_url})` }}
+          />
+        )}
+
+        {/* Dynamic Video Layer: Only rendered when needed */}
+        {shouldActivateVideo ? (
           <>
             <video 
               ref={videoRef}
               src={scene.final_video_url}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out z-10"
               muted
               loop
               playsInline
+              autoPlay={isHovered} // Auto-play only when specifically hovered
+              preload="auto"
             />
             {/* Play/Pause Button Overlay */}
             <button 
@@ -181,12 +202,7 @@ export function SceneCard({
               </div>
             </button>
           </>
-        ) : (scene.thumbnail_url || (visualType === 'image' && scene.asset_url)) && (
-          <div 
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-105"
-            style={{ backgroundImage: `url(${scene.thumbnail_url || scene.asset_url})` }}
-          />
-        )}
+        ) : null}
         {/* Modern Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 group-hover:from-black/20 group-hover:to-black/40 transition-colors" />
 
