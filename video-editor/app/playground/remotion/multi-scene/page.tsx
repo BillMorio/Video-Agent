@@ -276,6 +276,7 @@ export default function MultiScenePlayground() {
                             <option value="zoom">Zoom</option>
                             <option value="slide">Slide</option>
                             <option value="light-leak">Light Leak</option>
+                            <option value="fade-scale">Fade Scale</option>
                           </select>
                         </div>
                       )}
