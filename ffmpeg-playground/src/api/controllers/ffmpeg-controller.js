@@ -27,7 +27,7 @@ import {
 import { extractAudio, trimAudio } from '../../services/audio-service.js';
 import path from 'path';
 import config from '../../config/storage.js';
-import { uploadToSupabase, downloadFile } from '../../services/storage-service.js';
+import { uploadToCloudinary, downloadFile } from '../../services/storage-service.js';
 import { promises as fsPromises } from 'fs';
 
 export const healthCheck = async (req, res) => {
@@ -77,7 +77,7 @@ export const convert = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await convertVideo(req.file.path, req.body.format);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Conversion complete!',
@@ -97,7 +97,7 @@ export const resize = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await resizeVideo(req.file.path, req.body.width, req.body.height);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Video resized!',
@@ -117,7 +117,7 @@ export const trim = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await trimVideo(req.file.path, req.body.start, req.body.duration);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Video trimmed!',
@@ -137,7 +137,7 @@ export const filter = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await applyFilter(req.file.path, req.body.filter);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: `Filter applied!`,
@@ -157,7 +157,7 @@ export const thumbnail = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await generateThumbnail(req.file.path, req.body.timestamp);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Thumbnail created!',
@@ -177,7 +177,7 @@ export const audio = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await extractAudio(req.file.path);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Audio extracted!',
@@ -197,7 +197,7 @@ export const trimAudioAction = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await trimAudio(req.file.path, req.body.start, req.body.duration);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Audio segment processed!',
@@ -219,7 +219,7 @@ export const watermark = async (req, res) => {
   }
   try {
     const outPath = await watermarkVideo(req.files.video[0].path, req.files.watermark[0].path);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Watermark added!',
@@ -244,7 +244,7 @@ export const concat = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required' });
   try {
     const outPath = await concatVideos(req.files, req.body.transition, req.body.transitionDuration);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Videos concatenated!',
@@ -261,7 +261,7 @@ export const speed = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const result = await adjustSpeed(req.file.path, req.body.targetDuration, req.body.speed);
-    const publicUrl = await uploadToSupabase(result.outputPath);
+    const publicUrl = await uploadToCloudinary(result.outputPath);
     res.json({
       success: true,
       message: `Speed adjusted to ${result.speed.toFixed(2)}x`,
@@ -283,7 +283,7 @@ export const zoom = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const outPath = await applyZoom(req.file.path, req.body);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Zoom effect applied!',
@@ -331,7 +331,7 @@ export const agentTrim = async (req, res) => {
     const outPath = isAudio 
       ? await trimAudio(filePath, start, duration)
       : await trimVideo(filePath, start, duration);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Agent trim complete',
@@ -349,7 +349,7 @@ export const agentConcat = async (req, res) => {
   try {
     const files = filenames.map(f => ({ path: path.join(config.uploadsDir, f) }));
     const outPath = await concatVideos(files, transition, duration);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Agent concat complete',
@@ -429,7 +429,7 @@ export const projectStitch = async (req, res) => {
 
     // 4. Upload final master to Supabase
     console.log('[API] Uploading production master to storage...');
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
 
     // 5. Cleanup temporary files
     console.log('[API] Cleaning up temporary assets...');
@@ -465,7 +465,7 @@ export const merge = async (req, res) => {
   }
   try {
     const outPath = await mergeAudioVideo(req.files.video[0].path, req.files.audio[0].path);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Muxing complete!',
@@ -492,7 +492,7 @@ export const agentMergeAudioVideo = async (req, res) => {
     
     // Exact 1:1 sync with 0ms offset
     const outPath = await mergeAudioVideo(videoPath, audioPath, 0);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Agent muxing complete',
@@ -512,7 +512,7 @@ export const lightLeak = async (req, res) => {
   if (!req.files || req.files.length < 3) return res.status(400).json({ error: 'At least 3 files required: Clip A, Clip B, and Overlay Asset' });
   try {
     const outPath = await lightLeakTransition(req.files, parseFloat(req.body.transitionDuration));
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Professional light leak transition complete!',
@@ -532,7 +532,7 @@ export const batchLightLeak = async (req, res) => {
   if (!req.files || req.files.length < 3) return res.status(400).json({ error: 'At least 2 source clips + 1 overlay required' });
   try {
     const outPath = await batchLightLeakTransition(req.files, parseFloat(req.body.transitionDuration) || 0.8);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Batch light leak complete!',
@@ -552,7 +552,7 @@ export const zoomTransition = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required: Clip A and Clip B' });
   try {
     const outPath = await zoomInTransition(req.files, parseFloat(req.body.transitionDuration));
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Zoom In transition complete!',
@@ -572,7 +572,7 @@ export const blurTransition = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required: Clip A and Clip B' });
   try {
     const outPath = await blurCrossfade(req.files, parseFloat(req.body.transitionDuration));
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Blur Crossfade completed!',
@@ -589,7 +589,7 @@ export const zoomOutTransition = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required: Clip A and Clip B' });
   try {
     const outPath = await zoomOutTransitionLogic(req.files, parseFloat(req.body.transitionDuration));
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Zoom Out transition complete!',
@@ -606,7 +606,7 @@ export const radialAction = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required' });
   try {
     const outPath = await radialTransition(req.files, parseFloat(req.body.transitionDuration));
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({ success: true, message: 'Radial transition complete!', outputFile: `/outputs/${path.basename(outPath)}`, publicUrl });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -615,7 +615,7 @@ export const circleAction = async (req, res) => {
   if (!req.files || req.files.length < 2) return res.status(400).json({ error: 'At least 2 files required' });
   try {
     const outPath = await circleTransition(req.files, parseFloat(req.body.transitionDuration));
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({ success: true, message: 'Circle transition complete!', outputFile: `/outputs/${path.basename(outPath)}`, publicUrl });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -625,7 +625,7 @@ export const videoKenBurnsAction = async (req, res) => {
   try {
     const videoFile = req.files[0];
     const outPath = await videoKenBurns(videoFile.path, req.body.zoomType || 'in', req.body.aspectRatio || 'landscape');
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Video Ken Burns complete!',
@@ -644,7 +644,7 @@ export const kenBurnsAction = async (req, res) => {
   }
   try {
     const outPath = await kenBurns(req.files.image[0].path, req.files.audio[0].path, req.body.zoomType);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Ken Burns effect applied!',
@@ -666,7 +666,7 @@ export const agentKenBurns = async (req, res) => {
     const imagePath = path.join(config.uploadsDir, imageFilename);
     const audioPath = path.join(config.uploadsDir, audioFilename);
     const outPath = await kenBurns(imagePath, audioPath, zoomType);
-    const publicUrl = await uploadToSupabase(outPath);
+    const publicUrl = await uploadToCloudinary(outPath);
     res.json({
       success: true,
       message: 'Agent Ken Burns complete',

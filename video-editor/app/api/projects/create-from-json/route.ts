@@ -3,26 +3,53 @@ import { supabase } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {
-    const { projectTitle, storyboardData, masterAudioUrl, transcriptUrl } = await req.json();
+    const { projectId, projectTitle, storyboardData, masterAudioUrl, transcriptUrl } = await req.json();
 
     if (!projectTitle || !storyboardData || !storyboardData.scenes) {
       return NextResponse.json({ error: "Missing required data" }, { status: 400 });
     }
 
-    // 1. Create the Project
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .insert({
-        title: projectTitle,
-        total_duration: storyboardData.project.totalDuration || 0,
-        master_audio_url: masterAudioUrl,
-        transcript_url: transcriptUrl,
-        status: "draft"
-      })
-      .select()
-      .single();
+    let project;
 
-    if (projectError) throw projectError;
+    if (projectId) {
+      // 1. Update existing project
+      const { data: updatedProject, error: projectError } = await supabase
+        .from("projects")
+        .update({
+          title: projectTitle,
+          total_duration: storyboardData.project.totalDuration || 0,
+          master_audio_url: masterAudioUrl,
+          transcript_url: transcriptUrl,
+          status: "draft"
+        })
+        .eq("id", projectId)
+        .select()
+        .single();
+      
+      if (projectError) throw projectError;
+      project = updatedProject;
+
+      // Also cleanup existing scenes and memory for this project to avoid duplicates/conflicts
+      await supabase.from("scenes").delete().eq("project_id", projectId);
+      await supabase.from("agent_memory").delete().eq("project_id", projectId);
+
+    } else {
+      // 1. Create a new Project
+      const { data: newProject, error: projectError } = await supabase
+        .from("projects")
+        .insert({
+          title: projectTitle,
+          total_duration: storyboardData.project.totalDuration || 0,
+          master_audio_url: masterAudioUrl,
+          transcript_url: transcriptUrl,
+          status: "draft"
+        })
+        .select()
+        .single();
+
+      if (projectError) throw projectError;
+      project = newProject;
+    }
 
     // 2. Create the Scenes
     const scenesToInsert = storyboardData.scenes.map((scene: any, index: number) => {

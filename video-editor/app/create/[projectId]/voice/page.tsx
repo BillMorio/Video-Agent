@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { 
   ArrowLeft, 
   ChevronRight, 
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavSidebar } from "@/components/panels/nav-sidebar";
+import { CreationFlowBreadcrumbs } from "@/components/creation/creation-breadcrumbs";
 import { cn } from "@/lib/utils";
 
 const VOICES = [
@@ -34,13 +35,15 @@ const VOICES = [
 ];
 
 export default function VocalGalleryPage() {
+  const params = useParams();
+  const projectId = params.projectId as string;
   const [selectedVoice, setSelectedVoice] = useState(VOICES[0].id);
   const [isPlaying, setIsPlaying] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const router = useRouter();
 
   const handleNext = () => {
-    router.push("/playground/create/forge");
+    router.push(`/create/${projectId}/storyboard`);
   };
 
   const handleBack = () => {
@@ -95,13 +98,7 @@ export default function VocalGalleryPage() {
 
           <div className="flex items-center gap-4">
              {/* Progress Indicator */}
-             <div className="hidden md:flex items-center gap-3 mr-4">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">Scripting</span>
-                <ChevronRight className="w-3 h-3 text-muted-foreground/30" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Vocal</span>
-                <ChevronRight className="w-3 h-3 text-muted-foreground/30" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/30">Forge</span>
-             </div>
+             <CreationFlowBreadcrumbs activeStep="VOCAL" projectId={projectId} className="mr-4" />
              
              <ThemeToggle />
              <Button 

@@ -1,6 +1,28 @@
 import { supabase } from './supabase';
 
 /**
+ * Uploads a file to Cloudinary via our internal API proxy
+ * @param file The file to upload
+ * @returns The public URL of the uploaded file
+ */
+export async function uploadToCloudinary(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch('/api/storage/cloudinary', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'Cloudinary upload failed');
+  }
+
+  return data.url;
+}
+
+/**
  * Uploads a file to Supabase Storage
  * @param file The file to upload
  * @param path The path within the bucket (default: random filename)

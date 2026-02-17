@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { 
   ArrowLeft, 
   ChevronRight, 
@@ -14,27 +14,109 @@ import {
   MessageSquare,
   PanelLeft,
   Type,
-  Info
+  Info,
+  Loader2,
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavSidebar } from "@/components/panels/nav-sidebar";
+import { CreationFlowBreadcrumbs } from "@/components/creation/creation-breadcrumbs";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useProject, useUpdateProject } from "@/hooks/use-projects";
 
-const INITIAL_SCRIPT = `In a world where technology and nature coexist, a new architecture is emerging. Vertical forests are replacing concrete jungles, cooling our streets naturally and bringing biodiversity back to the heart of our urban centers. 
 
-Solar skins on skyscrapers are turning every building into a power plant, while smart grids utilize AI to distribute energy where it is needed most. This is not just a dream of the future; it is the blueprint for our urban evolution.`;
 
 export default function ScriptEditorPage() {
-  const [script, setScript] = useState(INITIAL_SCRIPT);
+  const params = useParams();
+  const projectId = params.projectId as string;
+  const [script, setScript] = useState("");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const router = useRouter();
 
-  const handleNext = () => {
-    router.push("/playground/create/voice");
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
+  const updateProjectMutation = useUpdateProject();
+
+  // Handle Initial Script/Transcription Generation
+  useEffect(() => {
+    if (projectLoading || !project) return;
+
+    const creationMode = project.metadata?.creation_mode;
+
+    // If script already exists in metadata, load it
+    if (project.metadata?.script) {
+      setScript(project.metadata.script);
+    } else if (creationMode === "prompt" && project.metadata?.prompt && !isGenerating && !script) {
+      // Auto-generate if prompt exists but no script
+      generateScript(project.metadata.prompt);
+    } else if (creationMode === "audio" && !isGenerating && !script) {
+      // Auto-transcribe if audio mode but no script
+      const audioUrl = localStorage.getItem(`project_${projectId}_audio_url`);
+      if (audioUrl) {
+        handleTranscribe(audioUrl);
+      }
+    }
+  }, [projectLoading, project]);
+
+  const handleTranscribe = async (url: string) => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/ai/whisper/from-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audioUrl: url }),
+      });
+      const data = await response.json();
+      if (data.text) {
+        setScript(data.text);
+        // Persist to project immediately
+        await updateProjectMutation.mutateAsync({
+          id: projectId,
+          updates: { metadata: { ...project?.metadata, script: data.text, transcription: data } }
+        });
+      }
+    } catch (err) {
+      console.error("Transcription failed:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const generateScript = async (inputPrompt: string) => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/ai/script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: inputPrompt, tone: "professional" }),
+      });
+      const data = await response.json();
+      if (data.script) {
+        setScript(data.script);
+        // Persist to project immediately
+        await updateProjectMutation.mutateAsync({
+          id: projectId,
+          updates: { metadata: { ...project?.metadata, script: data.script } }
+        });
+      }
+    } catch (err) {
+      console.error("Script gen failed:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleNext = async () => {
+    // Save latest script version before moving on
+    await updateProjectMutation.mutateAsync({
+      id: projectId,
+      updates: { metadata: { ...project?.metadata, script: script } }
+    });
+    router.push(`/create/${projectId}/voice`);
   };
 
   const handleBack = () => {
@@ -84,13 +166,7 @@ export default function ScriptEditorPage() {
 
           <div className="flex items-center gap-4">
              {/* Progress Indicator */}
-             <div className="hidden md:flex items-center gap-3 mr-4">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Scripting</span>
-                <ChevronRight className="w-3 h-3 text-muted-foreground/30" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/30">Vocal</span>
-                <ChevronRight className="w-3 h-3 text-muted-foreground/30" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/30">Forge</span>
-             </div>
+             <CreationFlowBreadcrumbs activeStep="SCRIPTING" projectId={projectId} className="mr-4" />
              
              <ThemeToggle />
              <Button 
@@ -111,19 +187,40 @@ export default function ScriptEditorPage() {
                        <h3 className="text-[10px] technical-label font-black uppercase tracking-[0.2em] text-primary italic">Narrative_Editor</h3>
                        <p className="text-xs font-bold text-foreground/60">Professional drafting interface for cinematic narration.</p>
                     </div>
-                    <Badge variant="outline" className="text-emerald-500 border-emerald-500/20 bg-emerald-500/5 text-[9px] technical-label italic px-3 py-1">
-                       <History className="w-3 h-3 mr-1.5" />
-                       AUTOSAVE_ACTIVE
-                    </Badge>
+                    <div className="flex items-center gap-3">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-7 px-2 text-[10px] technical-label font-black uppercase"
+                        onClick={() => project?.metadata?.prompt && generateScript(project.metadata.prompt)}
+                        disabled={isGenerating || !project?.metadata?.prompt}
+                      >
+                        <RefreshCw className={cn("w-3 h-3 mr-2", isGenerating && "animate-spin")} />
+                        Regenerate Script
+                      </Button>
+                      <Badge variant="outline" className="text-emerald-500 border-emerald-500/20 bg-emerald-500/5 text-[9px] technical-label italic px-3 py-1">
+                         <History className="w-3 h-3 mr-1.5" />
+                         AUTOSAVE_ACTIVE
+                      </Badge>
+                    </div>
                  </div>
 
-                 <Card className="border-border/40 bg-card/30 backdrop-blur-sm shadow-2xl overflow-hidden">
+                 <Card className="border-border/40 bg-card/30 backdrop-blur-sm shadow-2xl overflow-hidden relative">
+                    {isGenerating && (
+                      <div className="absolute inset-0 z-50 bg-background/40 backdrop-blur-[2px] flex items-center justify-center flex-col gap-4">
+                        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                        <span className="text-[10px] technical-label font-black uppercase tracking-[0.2em] text-primary animate-pulse">
+                          {project?.metadata?.creation_mode === "audio" ? "Acoustic_Extraction_Active" : "Neural_Synthesis_Active"}
+                        </span>
+                      </div>
+                    )}
                     <div className="p-8">
                        <Textarea
                          value={script}
                          onChange={(e) => setScript(e.target.value)}
                          className="w-full min-h-[500px] bg-transparent border-none focus-visible:ring-0 text-lg font-medium leading-[2] text-foreground/90 placeholder:text-muted-foreground/10 resize-none scrollbar-hide"
                          spellCheck={false}
+                         disabled={isGenerating}
                        />
                     </div>
                  </Card>

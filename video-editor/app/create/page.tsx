@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Sparkles, 
@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavSidebar } from "@/components/panels/nav-sidebar";
 import { CreationFlowBreadcrumbs } from "@/components/creation/creation-breadcrumbs";
+import { uploadToCloudinary } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
 export default function CreativeSparkPage() {
@@ -33,6 +34,7 @@ export default function CreativeSparkPage() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [logs, setLogs] = useState<{ msg: string; type: string }[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   const addLog = (msg: string, type: string = "system") => {
@@ -47,13 +49,26 @@ export default function CreativeSparkPage() {
     addLog(`System: Initializing Creative Spark Engine (${creationMode === "prompt" ? "Text" : "Audio"})...`, "system");
     
     try {
+      let masterAudioUrl = "";
+      
+      if (creationMode === "audio" && audioFile) {
+        addLog("Storage: Syncing acoustic asset to production cloud (Cloudinary)...", "ai");
+        masterAudioUrl = await uploadToCloudinary(audioFile);
+        addLog("Signal: Asset synchronized successfully.", "system");
+      }
+
       // Initialize Project in Database
       const initResponse = await fetch("/api/projects/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          title: creationMode === "prompt" ? (prompt.slice(0, 30) + "...") : audioFile?.name,
-          metadata: { creation_mode: creationMode }
+          title: creationMode === "prompt" ? (prompt.slice(0, 30) + (prompt.length > 30 ? "..." : "")) : audioFile?.name,
+          masterAudioUrl,
+          metadata: { 
+            creation_mode: creationMode,
+            prompt: creationMode === "prompt" ? prompt : undefined,
+            master_audio_url: masterAudioUrl // Also keep in metadata for safety
+          }
         }),
       });
       
@@ -61,8 +76,7 @@ export default function CreativeSparkPage() {
       if (error) throw new Error(error);
 
       if (creationMode === "audio" && audioFile) {
-        const simulatedUrl = URL.createObjectURL(audioFile);
-        localStorage.setItem(`project_${projectId}_audio_url`, simulatedUrl);
+        localStorage.setItem(`project_${projectId}_audio_url`, masterAudioUrl);
         
         await new Promise(r => setTimeout(r, 800));
         addLog("Acoustic: Analyzing vocal frequencies...", "ai");
@@ -71,7 +85,7 @@ export default function CreativeSparkPage() {
         addLog(`Signal: Creative buffer synchronized for ${projectId.slice(0,8)}`, "system");
         
         await new Promise(r => setTimeout(r, 1000));
-        router.push(`/playground/create/${projectId}/storyboard`);
+        router.push(`/create/${projectId}/storyboard`);
       } else {
         await new Promise(r => setTimeout(r, 800));
         addLog("Neural: Propagating ideation vectors...", "ai");
@@ -80,7 +94,7 @@ export default function CreativeSparkPage() {
         addLog(`Signal: Creative buffer synchronized for ${projectId.slice(0,8)}`, "system");
         
         await new Promise(r => setTimeout(r, 1000));
-        router.push(`/playground/create/${projectId}/script`);
+        router.push(`/create/${projectId}/script`);
       }
     } catch (err: any) {
       addLog(`Error: ${err.message}`, "system");
@@ -202,7 +216,17 @@ export default function CreativeSparkPage() {
                         className="w-full h-32 bg-transparent border-none focus:ring-0 text-xl font-medium text-foreground placeholder:text-muted-foreground/20 resize-none scrollbar-hide leading-relaxed"
                       />
                     ) : (
-                      <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-border/20 rounded-2xl hover:border-primary/40 transition-colors cursor-pointer group/upload">
+                      <div 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-border/20 rounded-2xl hover:border-primary/40 transition-colors cursor-pointer group/upload"
+                      >
+                        <input 
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
+                          accept="audio/*"
+                          className="hidden"
+                        />
                         {audioFile ? (
                           <div className="flex items-center gap-3">
                             <FileAudio className="w-8 h-8 text-primary" />

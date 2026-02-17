@@ -7,14 +7,15 @@ import { jobService } from "../services/api/job-service";
 // Import real production tools
 import * as imageTools from "./tools/production/image-tools";
 import * as arollTools from "./tools/production/aroll-tools";
+import * as googleTools from "./tools/production/google-tools";
 
 export class ImageAgent implements BaseAgent {
   name = "Image Agent";
-  role = "Orchestrates background graphics, Wavespeed image generations, and Ken Burns cinematic video synthesis.";
+  role = "Orchestrates background graphics, Google Imagen generations, and Ken Burns cinematic video synthesis.";
 
   private TOOL_LOG_MAPPING: Record<string, string> = {
     'generate_visual_prompt': 'Synthesizing high-fidelity visual context for prompt engineering',
-    'generate_wavespeed_image': 'Generating technical imagery via Wavespeed Nano-Banana',
+    'generate_google_image': 'Generating technical imagery via Google Imagen (Gemini 2.0)',
     'cut_audio_segment': 'Extracting narration segment for scene',
     'generate_ken_burns_video': 'Applying cinematic Ken Burns temporal synthesis',
   };
@@ -50,8 +51,8 @@ export class ImageAgent implements BaseAgent {
       - Master Audio: ${context.master_audio_url || "NONE"}
       
       PRODUCTION WORKFLOW (Reason-Act):
-      1. OPTIMIZATION: Use 'generate_visual_prompt' to create a clear, detailed SDXL-style prompt congruent with the narrative.
-      2. GENERATION: Use 'generate_wavespeed_image' with that prompt to create the static visual asset.
+      1. OPTIMIZATION: Use 'generate_visual_prompt' to create a clear, detailed prompt congruent with the narrative.
+      2. GENERATION: Use 'generate_google_image' with that prompt to create the static visual asset (via Google Imagen).
       3. AUDIO PREP: Use 'cut_audio_segment' to extract the narration for this specific section (${scene.start_time} to ${scene.end_time}).
       4. TEMPORAL SYNTHESIS: Use 'generate_ken_burns_video' to combine the image and audio into a zooming cinematic video.
          - Choose zoomType based on narrative intent:
@@ -124,11 +125,8 @@ export class ImageAgent implements BaseAgent {
                   customSystemPrompt: context.memory.metadata?.config?.image_gen_prompt_engineer_prompt,
                   anthropicApiKey: context.memory.metadata?.config?.api_keys?.ANTHROPIC_API
                 });
-              } else if (toolName === 'generate_wavespeed_image') {
-                toolResult = await imageTools.generate_wavespeed_image({
-                  ...args,
-                  apiKey: context.memory.metadata?.config?.api_keys?.WAVESPEED_API_KEY
-                });
+              } else if (toolName === 'generate_google_image') {
+                toolResult = await googleTools.generate_google_image(args);
                 if (toolResult.status === 'success') {
                   // Save assets as they come in
                   await sceneService.update(scene.id, { 

@@ -22,19 +22,13 @@ export const IMAGE_AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "generate_wavespeed_image",
-      description: "Initiates image generation on Wavespeed Nano-Banana engine using a text prompt.",
+      name: "generate_google_image",
+      description: "Generates high-fidelity imagery using Google Imagen (via Gemini 2.0). Optimized for cinematic tech aesthetics.",
       parameters: {
         type: "object",
         properties: {
           prompt: { type: "string", description: "The detailed prompt for image generation" },
-          options: {
-            type: "object",
-            properties: {
-              output_format: { type: "string", enum: ["png", "jpg", "webp"], default: "png" },
-              enable_sync_mode: { type: "boolean", default: false }
-            }
-          }
+          style: { type: "string", description: "Optional style descriptor (e.g. 'cinematic', '3d render')" }
         },
         required: ["prompt"]
       }

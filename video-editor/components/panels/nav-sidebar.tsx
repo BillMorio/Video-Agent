@@ -29,8 +29,8 @@ export function NavSidebar({ activeItem = "studio", isCollapsed = false, onItemC
   const pathname = usePathname();
   
   const navItems: NavItem[] = [
-    { id: "library", label: "Library", sub: "Production Fleet", icon: <LayoutGrid className="w-4 h-4" />, href: "/playground/dashboard" },
-    { id: "studio", label: "Studio", sub: "Primary Workflow", icon: <FileVideo className="w-4 h-4" />, href: "/playground/start" },
+    { id: "library", label: "Library", sub: "Production Fleet", icon: <LayoutGrid className="w-4 h-4" />, href: "/dashboard" },
+    { id: "studio", label: "Studio", sub: "Primary Workflow", icon: <FileVideo className="w-4 h-4" />, href: "/create" },
     { id: "settings", label: "Settings", sub: "Configuration", icon: <Settings className="w-4 h-4" />, href: "#" },
   ];
 

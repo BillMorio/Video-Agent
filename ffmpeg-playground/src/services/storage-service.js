@@ -1,9 +1,33 @@
 import { supabase } from '../config/supabase.js';
+import cloudinary from '../config/cloudinary.js';
 import { promises as fsPromises } from 'fs';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import config from '../config/storage.js';
+
+/**
+ * Uploads a local file to Cloudinary
+ * @param {string} localPath Full path to the local file
+ * @returns {Promise<string>} Secure URL of the uploaded file
+ */
+export async function uploadToCloudinary(localPath) {
+  try {
+    console.log(`[StorageService] Uploading ${path.basename(localPath)} to Cloudinary...`);
+    
+    const result = await cloudinary.uploader.upload(localPath, {
+      resource_type: 'auto',
+      folder: 'lumina-ffmpeg-outputs',
+      public_id: `${Date.now()}-${path.basename(localPath, path.extname(localPath))}`,
+    });
+
+    console.log(`[StorageService] Cloudinary Upload successful: ${result.secure_url}`);
+    return result.secure_url;
+  } catch (err) {
+    console.error('[StorageService] Cloudinary Upload Error:', err);
+    throw err;
+  }
+}
 
 /**
  * Uploads a local file to Supabase Storage
